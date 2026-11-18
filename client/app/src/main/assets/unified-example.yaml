@@ -1,0 +1,49 @@
+# 必须先替换所有占位符，并改成你的真实网段/节点。
+# 这只是结构示例，不会自动读取 Clash、WireGuard 或 Tailscale App 的私有配置。
+mode: rule
+ipv6: true
+dns:
+  enable: true
+  ipv6: true
+  enhanced-mode: redir-host
+  default-nameserver: [223.5.5.5, 1.1.1.1]
+  proxy-server-nameserver: [223.5.5.5, 1.1.1.1]
+  nameserver: [https://dns.alidns.com/dns-query]
+  nameserver-policy:
+    '+.ts.net': tailscale://TAILNET
+    '+.home.arpa': '10.77.0.1#WG'
+proxies:
+  # 用你自己的 Mihomo 节点配置替换这个 SOCKS5 示例。
+  - name: INTERNET
+    type: socks5
+    server: REPLACE_PROXY_SERVER
+    port: 1080
+    udp: true
+  - name: WG
+    type: wireguard
+    server: REPLACE_WG_ENDPOINT
+    port: 51820
+    ip: 10.77.0.2
+    private-key: REPLACE_WG_PRIVATE_KEY
+    public-key: REPLACE_WG_SERVER_PUBLIC_KEY
+    allowed-ips: [10.77.0.0/24]
+    udp: true
+    persistent-keepalive: 25
+    mtu: 1280
+  - name: TAILNET
+    type: tailscale
+    hostname: one-tunnel-android
+    auth-key: REPLACE_TAILSCALE_AUTH_KEY
+    state-dir: tailscale
+    accept-routes: true
+    udp: true
+    # control-url: https://your-headscale.example
+    # exit-node: 100.x.y.z
+rules:
+  - DOMAIN-SUFFIX,ts.net,TAILNET
+  - IP-CIDR,100.64.0.0/10,TAILNET,no-resolve
+  - IP-CIDR6,fd7a:115c:a1e0::/48,TAILNET,no-resolve
+  # 若 tailnet 发布了其他子网，还需在这里添加相应规则。
+  - DOMAIN-SUFFIX,home.arpa,WG
+  - IP-CIDR,10.77.0.0/24,WG,no-resolve
+  - MATCH,INTERNET

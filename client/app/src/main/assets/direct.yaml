@@ -1,0 +1,13 @@
+# 直连验证模板：没有代理节点，不提供翻墙能力。
+# 仅供你主动切换 VPN 后检查基础 TUN/DNS，不能与原 Clash 同时占用 VPN。
+mode: rule
+ipv6: true
+dns:
+  enable: true
+  ipv6: true
+  enhanced-mode: redir-host
+  default-nameserver: [223.5.5.5, 1.1.1.1]
+  nameserver: [https://dns.alidns.com/dns-query]
+proxies: []
+rules:
+  - MATCH,DIRECT

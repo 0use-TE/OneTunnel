@@ -1,0 +1,9 @@
+# Upstream repositories are independently versioned checkouts.
+# Their URLs and pinned commits are recorded in UPSTREAMS.md.
+/upstream/
+*.log
+**/.gradle/
+**/build/
+/client/local.properties
+/client/app/src/main/jniLibs/
+/artifacts/
