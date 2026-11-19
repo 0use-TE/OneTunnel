@@ -46,4 +46,6 @@ rules:
   # 若 tailnet 发布了其他子网，还需在这里添加相应规则。
   - DOMAIN-SUFFIX,home.arpa,WG
   - IP-CIDR,10.77.0.0/24,WG,no-resolve
+  - GEOSITE,cn,DIRECT
+  - GEOIP,CN,DIRECT,no-resolve
   - MATCH,INTERNET

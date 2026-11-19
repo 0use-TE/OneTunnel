@@ -1,0 +1,21 @@
+diff --git a/adapter/outbound/tailscale.go b/adapter/outbound/tailscale.go
+index 2d487da..1e681a8 100644
+--- a/adapter/outbound/tailscale.go
++++ b/adapter/outbound/tailscale.go
+@@ -51,0 +52 @@ type Tailscale struct {
++	oneTunnelForwarder *oneTunnelForwarder
+@@ -62,0 +64 @@ type TailscaleOption struct {
++	ListenPorts []OneTunnelListenPort `proxy:"listen-ports,omitempty"`
+@@ -114,0 +117,2 @@ func NewTailscale(option TailscaleOption) (*Tailscale, error) {
++	forwarder, err := newOneTunnelForwarder(option.ListenPorts)
++	if err != nil { return nil, err }
+@@ -145,0 +150 @@ func NewTailscale(option TailscaleOption) (*Tailscale, error) {
++		oneTunnelForwarder: forwarder,
+@@ -200,0 +206,5 @@ func (t *Tailscale) start() error {
++		if err := t.oneTunnelForwarder.start(t.ctx, t.server.Listen); err != nil {
++			t.startErr = err
++			t.setBackendInitialized(err)
++			return
++		}
+@@ -468,0 +479 @@ func (t *Tailscale) Close() error {
++	t.oneTunnelForwarder.close()

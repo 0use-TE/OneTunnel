@@ -9,9 +9,10 @@ export GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}"
 export CGO_CFLAGS="-I$JAVA_HOME/include -I$JAVA_HOME/include/linux"
 export CGO_LDFLAGS="-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384"
 mkdir -p "$root/client/app/src/main/jniLibs/arm64-v8a"
+bash "$root/scripts/prepare-core.sh"
 cd "$root/native"
 go build -mod=mod -buildvcs=false -p 1 -trimpath \
-  -tags=with_gvisor,no_easytier,no_zerotier \
+  -tags=with_gvisor,onetunnel,no_easytier,no_zerotier \
   -buildmode=c-shared -ldflags='-s -w' \
   -o "$root/client/app/src/main/jniLibs/arm64-v8a/libonetunnel.so" .
 # Termux Clang adds a host-private RUNPATH by default. Remove only that metadata.

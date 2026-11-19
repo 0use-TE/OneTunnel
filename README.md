@@ -2,27 +2,53 @@
 
 Compose 客户端，将安卓应用流量送入一个 VpnService/TUN，由原生 Mihomo 按规则选择普通代理、WireGuard、Tailscale 或明确配置的直连出口。
 
-**这是供用户手动测试的 alpha，不是已经验证联网的生产客户端。AI 不会安装/启动它，不会关闭或重配原 Clash。**
+**这是供用户手动测试的 alpha，不是已经验证联网的生产客户端。VPN 仅由用户主动连接；开发验证不关闭或重配原 Clash。**
 
 ## 已实现
 
-- Jetpack Compose 总览、配置编辑和说明页面，适合平板宽屏。
-- SAF 导入 Mihomo YAML、最多 1 MiB；离线语法/结构检查；显式加密保存。
+- OneTunnel：连接、规则、设置三页；浅色、深色及跟随系统。连接页采用总开关和各连接独立开关。
+- 点击订阅、WG、TS 列表项进入编辑；开关仅启停。WG 支持密钥、地址、DNS、多 Peer、Endpoint、AllowedIPs 与分流方式；TS 支持设备名与控制服务。订阅无独立更新按钮，编辑链接后下载新配置。
+- “其他流量使用”只列 Clash、各 WG/TS、直连和阻止；订阅细分组、单节点和核心内置项由高级配置处理。
+- 当前一次启用一份 Clash 订阅，多份缓存可切换；WireGuard/Tailscale 可多个同时启用，按规则分流。关闭的出口在运行配置中替换为 REJECT，原始凭据和规则仍保留。
+- 完成导入或图形设置后立即加密保存；取消“未保存 / 保存更改”流程。运行中切换连接经同 UID IPC/JNI 重载核心并关闭旧连接，保持 Android TUN；失败时停止 VPN。
+- 导入或启用 WG 时检查新出现的有效 IPv4/IPv6 路由重叠，显示具体连接、网段，允许取消或明确继续；仅添加出口且无对应路由规则不提示。
+- 三出口模板默认国内域名/IP 直连，其余 MATCH；可选择 MATCH 出口、切换国内直连、添加或删除域名/网段规则。导入已有配置保留原规则。
+- 运行中可切换国内直连与 MATCH、添加/删除规则，点击常用域名、网段、GEOSITE/GEOIP 或 MATCH 条目弹出编辑；完成即加密保存并重载，保留系统 VPN 隧道，旧连接会重连。规则条目有圆角内边距与细边框；“排序”弹窗长按整行上下拖拽，边缘自动滚动，MATCH 固定最后，完成后一起应用；复杂组合规则仍通过停止后的高级配置编辑。
+- 设置页可开关 HTTP 代理并修改监听端口（默认 7890，范围 1024–65535），有效输入短暂防抖后自动加密保存。默认只监听 127.0.0.1；允许局域网连接后默认需要认证，可关闭“添加账号”改为免认证，均只接受私网/本地来源。沿用支持 HTTP/SOCKS5 的 mixed listener，随统一 VPN 启停；停止后修改，下次连接生效。旧版 LAN 配置自动兼容。
+- 运行中可添加 WG 文件 / 扫码 / 二维码图片、Tailscale 和 Clash 配置 / 订阅，确认保存后经现有 IPC 热重载，保留 Android TUN；已有连接会重连。文件选择器返回时等待服务通道恢复，重载期间阻止重复提交，重载失败停止连接并保留已保存配置。
+- Tailscale 在线设备列表默认折叠，点击标题展开，只显示在线设备。
+- Tailscale 编辑页可添加本机 TCP 端口转发（最多 16 条），例如入站 8022 → 本机 8022，供 Tailnet 设备访问 Termux SSH。默认不开放端口，目标固定为 127.0.0.1；随该连接和统一 VPN 启停，运行中修改自动保存并重载。认证会话不开放转发，原节点身份不因端口修改而改变。
+- 设置页“配置”仅保留导入 Clash 配置文件和高级配置；三出口示例、直连测试模板收在高级配置中。
+- SAF 导入 Mihomo YAML、最多 1 MiB；离线语法/结构检查；确认导入后自动加密保存。
+- Clash/Mihomo YAML 订阅：粘贴 HTTP/HTTPS 链接、下载预览、独立加密缓存、手动更新和切换；已用电脑中的 Ouse 与魔戒订阅实际下载验证。连接期间可更新缓存，停止后应用配置。
+- Tailscale 添加节点、触发系统浏览器认证、查看状态和设备；通过同一 tsnet 身份工作。未连接时用独立认证会话，已连接时直接向正在运行的核心请求认证。认证链接异步返回后打开浏览器，不因普通状态轮询反复弹出。
+- 连接列表采用整张圆角卡片点击反馈，开关独立操作；点击条目编辑并删除。删除 WG/TS 后其规则和 DNS 引用改为阻止；删除当前订阅保留本机 WG/TS、身份配置、分流和 LAN 设置，原订阅出口不回退直连。删除只影响本机配置，不代替 Tailnet 管理后台的设备吊销。
+- WireGuard `.conf` 文件导入（64 KiB 上限）、相机二维码、图片二维码（8 MiB 上限）；离线转换并预览，确认添加后自动保存，不自动启动 VPN。可仅添加出站、按 AllowedIPs 分流或选择为 MATCH。
 - Android Keystore AES-GCM 配置存储；配置页禁止截图；不备份应用配置和核心状态。
 - 一个 Android VpnService，独立 `:vpn` 进程；IPv4/IPv6 TUN、DNS 劫持、socket protect JNI 回调。
+- VPN 跟随系统默认底层网络并继承计费状态，避免把自身作为底层网络或将普通 Wi-Fi 无条件标为计费连接。QQ 发图复现后修复，用户实测确认恢复。
 - Mihomo Meta 固定提交的原生代理/WG/Tailscale 出站能力；没有用 sing-box 替代内核。
-- 启动前明确警告现有 VPN 会被替换；没有开机启动、自动重连、自动测速或控制 API。
+- 启动前明确警告现有 VPN 会被替换；没有开机启动、自动重连、自动测速或外部控制 API。
 - 停止入口和前台通知；原生启动卡住时可结束独立 VPN 进程。
 - 三出口结构示例和只用于基础验证的直连模板，均不包含真实凭据。
 
 ## 尚未实现/验证
 
 - 本设备上的 VPN、代理、WG、Tailscale、UDP、MagicDNS、网络切换和后台稳定性均待用户验证。
-- 浏览器式 Tailscale 登录、设备列表、订阅管理 UI、节点选择 UI、按 App/PROCESS 规则。
+- 代理组成员实时选择 UI、按 App/PROCESS 规则、定时订阅更新。
 - 系统级 always-on/lockdown、完整 kill switch、正式签名和应用商店发布。
-- NDK/其他 ABI、ZeroTier/EasyTier 出站、全部已有 Clash 配置的无修改兼容。
+- ARM64 以外 ABI、ZeroTier/EasyTier 出站、全部已有 Clash 配置的无修改兼容。
+- WireGuard 入站到本机服务的端口转发；当前 WG 仍作为 Mihomo 出站使用，Tailscale 的本机 TCP 转发不会自动应用到 WG。
 
-原生 Tailscale 首次推荐 auth-key，会创建新 tailnet 身份，不复用原 Tailscale App。核心的状态和 provider 缓存位于私有目录，不声称所有运行时文件都经过 Keystore 加密。
+Tailscale 可使用浏览器登录，也可在高级配置中填写 auth-key；会创建新 tailnet 身份，不复用原 Tailscale App。核心的状态和 provider 缓存位于私有目录，不声称所有运行时文件都经过 Keystore 加密。
+
+访问 Termux：点击已添加的 Tailscale 连接 → 本机端口转发 → 添加端口，填写入站 `8022`、本机 `8022`，点完成。启用该 Tailscale 连接及总 VPN，在 Termux 启动 `sshd`；其他 Tailnet 设备执行 `ssh -p 8022 <Termux 的 whoami 用户名>@<OneTunnel 的 Tailscale IP>`。应使用 OneTunnel 状态显示的节点地址，并确保 Tailnet ACL 允许对应 TCP 端口。这里只转发显式配置的 TCP 端口，不提供完整官方 App 的 IP 入站行为或内置 Tailscale SSH。
+
+构建验证见 `docs/BUILD_RESULT.md`。原生库和上游副本由构建脚本生成，不纳入 Git；完整 APK 必须包含真实原生库。默认国内规则使用 GEOSITE/GEOIP，首次启动可能下载所需数据库；离线检查不会下载。局域网代理只接受私网/本地来源并要求认证，不会开放 Mihomo 控制接口。
+
+WG 导入面向标准主动连接的客户端配置：支持 IPv4/IPv6、多个 Peer（Keepalive 需一致）、预共享密钥；保留 Peer 的 AllowedIPs。脚本、按 App 选项、多个同族本地地址及不兼容扩展会明确拒绝，不悄悄丢弃。DNS 只用于 WG 出站解析，搜索域和 ListenPort/Table/SaveConfig 的差异在导入预览说明。含默认路由时不自动添加覆盖全部目标的前置规则，可显式设为 MATCH；新建配置未选 MATCH 时其余流量暂设 REJECT。相机权限仅点击扫码时申请，不上传二维码或写入相册。
+
+协议与导入入口是两层：内嵌 Mihomo 可解析 VLESS、VMess、SS/SSR、Trojan、Hysteria/Hysteria2、TUIC、SOCKS5/HTTP 等出站 YAML。订阅入口接收 Clash/Mihomo YAML，不转换 Base64 节点列表或 `vless://` 等单节点分享链接；WG 扫码入口只处理 WG 配置文本。桌面脚本不执行，PROCESS 规则移除并在预览提示；订阅不能自行打开局域网共享或控制端口。更新和切换保留应用添加的 WG/TS 节点，可选择保留当前规则。
 
 ## 源码分析与测试
 
@@ -59,9 +85,20 @@ BUILD_PROXY=127.0.0.1:7890 bash scripts/build-client-termux.sh
 
 脚本只编译，不安装或运行 APK。原生编译较慢，限制编译并发以减少内存占用。APK 仅 ARM64，最低 Android 8，compile/target API 34 是兼容性验证基线，不代表满足当前商店要求。构建产物使用开发签名，不应作为正式发布密钥。
 
+## Windows 原生编译
+
+准备 Go 1.26.4、Android NDK r29、JDK 21、SDK 34 和 Gradle 8.7。先用 `scripts/fetch-upstreams.sh` 获取固定源码，再执行：
+
+```powershell
+./scripts/build-native-windows.ps1 -NdkRoot 'C:/Android/android-ndk-r29' -GoExe 'go'
+gradle -p client :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+```
+
+原生脚本自动安装项目的 Tailscale 窄接口 overlay，输出 ARM64 JNI 库；不会安装或启动应用。
+
 ## 安全启动
 
-先导入配置、离线检查并加密保存，确认自己能恢复原 Clash，然后手动点启动并完成系统授权。**VPN 授权/启动可能立刻中断现有 VPN 和 GPT 连接。**
+先导入配置并确认，程序自动检查、加密保存；确认自己能恢复原 Clash，然后打开连接总开关并完成系统授权。**VPN 授权/启动可能立刻中断现有 VPN 和 GPT 连接。**
 
 本 App 不读取原 Clash、WG 或 Tailscale 的私有文件，不会自动导入你的密钥。不要在聊天里发送真实凭据。
 
@@ -69,4 +106,4 @@ BUILD_PROXY=127.0.0.1:7890 bash scripts/build-client-termux.sh
 
 自写代码 GPL-3.0-or-later；Mihomo 为 GPLv3，Tailscale 和各传递依赖遵循各自许可。根目录 LICENSE 是 GPLv3 正文。许可副本和通知见 licenses 与 APK assets/licenses。正式公开分发前需完善对应源码与全部传递依赖许可合规，不应宣称是 Mihomo、Tailscale 或 Clash 官方客户端。
 
-本仓库为本机新建 Git 仓库，没有配置远程 origin，也没有上传 GitHub。上游副本不计入本项目 Git 历史；源码交付包包含固定 Mihomo 源码，以便离线检查及复现。
+项目远程仓库为 https://github.com/0use-TE/OneTunnel 。上游副本和本地构建产物不计入本项目 Git 历史；上游提交与补丁记录在 UPSTREAMS.md，构建时获取固定源码并应用项目补丁。

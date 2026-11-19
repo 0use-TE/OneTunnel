@@ -10,7 +10,7 @@ import org.json.JSONObject
 import java.io.File
 
 data class TunnelStatus(val state: String = "idle", val message: String = "未启动 · 不会自动替换当前 VPN") {
-    val active: Boolean get() = state in listOf("starting", "running", "stopping")
+    val active: Boolean get() = state in listOf("preparing", "starting", "running", "stopping", "auth-starting", "auth")
 }
 class StatusStore(context: Context) {
     private val file = AtomicFile(File(context.noBackupFilesDir, "tunnel-status.json"))

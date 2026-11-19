@@ -12,8 +12,9 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-class ConfigStore(context: Context) {
-    private val file = AtomicFile(File(context.noBackupFilesDir, "profile.enc"))
+class ConfigStore(context: Context, fileName: String = "profile.enc") {
+    init { require(fileName.matches(Regex("[a-z0-9-]+\\.enc"))) }
+    private val file = AtomicFile(File(context.noBackupFilesDir, fileName))
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
@@ -32,6 +33,7 @@ class ConfigStore(context: Context) {
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(1, 13)))
         return cipher.doFinal(bytes.copyOfRange(13, bytes.size)).toString(Charsets.UTF_8)
     }
+    fun delete() { file.delete() }
     fun save(text: String) {
         val plain = text.toByteArray(Charsets.UTF_8)
         require(plain.size <= MAX_BYTES)

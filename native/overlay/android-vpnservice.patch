@@ -1,0 +1,12 @@
+diff --git a/listener/sing_tun/server_android.go b/listener/sing_tun/server_android.go
+--- a/listener/sing_tun/server_android.go
++++ b/listener/sing_tun/server_android.go
+@@ -1 +1 @@
+-//go:build android && !cmfa
++//go:build android && !cmfa && !onetunnel
+diff --git a/listener/sing_tun/server_notandroid.go b/listener/sing_tun/server_notandroid.go
+--- a/listener/sing_tun/server_notandroid.go
++++ b/listener/sing_tun/server_notandroid.go
+@@ -1 +1 @@
+-//go:build !android || cmfa
++//go:build !android || cmfa || onetunnel

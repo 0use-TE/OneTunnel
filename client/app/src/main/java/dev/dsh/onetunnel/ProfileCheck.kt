@@ -28,10 +28,17 @@ object ProfileCheck {
         require(!rules.isNullOrEmpty() && rules.last().toString().trim().startsWith("MATCH,")) {
             "请提供 rules，并以明确的 MATCH,出口名 作为最后一条规则；程序不会自动添加直连回退。"
         }
+        require(rules.all { it is String } && rules.dropLast(1).none { it.toString().trim().startsWith("MATCH,") }) {
+            "规则必须是文本，且只允许末尾一条 MATCH。"
+        }
         require(rules.none { it.toString().startsWith("PROCESS-", ignoreCase = true) }) {
             "第一版尚未接入按进程/包名查询，请暂时移除 PROCESS-* 规则。"
         }
         val proxies = (root["proxies"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+        proxies.filter { it["type"] == "tailscale" }.forEach { TailscalePortForwards.read(it) }
+        val view = ProfileEditor.view(text)
+        require(view.match in view.exits) { "MATCH 指向不存在的出口，请在规则页重新选择。" }
+        ProfileEditor.lan(text, view.lan) // Validate explicit LAN settings before saving/starting.
         return ProfileSummary(proxies.size, rules.size,
             proxies.count { it["type"] == "wireguard" }, proxies.count { it["type"] == "tailscale" })
     }

@@ -11,8 +11,8 @@ android {
         applicationId = "dev.dsh.onetunnel"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0-alpha"
+        versionCode = 17
+        versionName = "0.3.13-alpha"
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true; aidl = false; renderScript = false }
@@ -27,5 +27,8 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.06.00"))
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("org.yaml:snakeyaml:2.3")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    testImplementation("junit:junit:4.13.2")
 }

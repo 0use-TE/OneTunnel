@@ -18,4 +18,10 @@ github.com/metacubex/tailscale v0.0.0-20260821153257-ff0ecd818181
 
 注意：本次仓库默认 `main` 分支检出的是无关的 Python Mihomo API 项目，不能用于代理核心分析。已改为显式获取并固定 `Meta` 网络核心分支。正式复现必须使用上述提交，不要只执行无分支的 clone 后假定内容正确。
 
-`upstream/` 是忽略提交的独立上游副本，不包含用户配置。项目本身没有远程 origin，没有自动推送到 GitHub。
+`upstream/` 是忽略提交的独立上游副本，不包含用户配置。项目远程 origin 为 https://github.com/0use-TE/OneTunnel.git ，上游副本不随 Git 提交。
+
+项目在固定核心上添加 `native/overlay/onetunnel_tailscale.go`：仅向 JNI 暴露内嵌 tsnet 的 status/login/logout，不启用 HTTP controller。`scripts/prepare-core.sh` 和 Windows 原生构建脚本将该文件复制进上游 adapter/outbound；复现时必须执行这一步。
+
+Android VPN App 使用额外的 `onetunnel` build tag，以及 `native/overlay/android-vpnservice.patch`：只调整 TUN package manager 的两处构建条件，避免读取系统私有 packages.xml。该路径与 VpnService 注入 FD、由 Android 管理应用路由的模式一致；不启用会影响其他核心行为的全局 cmfa tag。构建脚本幂等应用此补丁。
+
+0.3.13 另加 `native/overlay/tailscale-inbound.patch`，为同一固定版本的 TailscaleOption 接入 `listen-ports`、启动和关闭钩子；实际 TCP 转发位于 `onetunnel_tailscale_forward.go`。脚本复制 overlay 及回归测试并幂等应用两个补丁。没有修改 tsnet 默认未注册端口拒绝逻辑；只有显式配置的 Server.Listen 端口转发到设备 127.0.0.1。
