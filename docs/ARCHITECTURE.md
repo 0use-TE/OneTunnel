@@ -98,6 +98,15 @@ HTTP 代理设置使用应用元数据 `http-enabled`、`lan-port` 和既有 LAN
 
 0.3.7 增加 `lan-auth-enabled`（缺省 true），对应界面“添加账号”；显式 false 才省略 authentication，保留 LAN 来源限制及原凭据。运行中添加连接允许使用既有重载链路，CoreControl 在服务通道未连接时排队并等待绑定；排队最长 10 秒，核心重载最长 120 秒，更新期间暂停其他提交和状态请求。前后台切换时保留正在更新的 IPC。重载仍会关闭旧连接 / 出站并应用新配置，不重建 Android TUN；失败保留已保存的配置并停止 VPN。Tailscale 在线设备明细默认折叠，状态查询本身不会展开。
 
+## Clash 代理页与窄控制通道（0.3.15）
+
+- ClashProxyPage 使用独立页面、代理组横向选择、自适应 LazyVerticalGrid 和节点搜索，保留连接/规则/设置三页结构。点击订阅打开代理页，“管理”进入已有编辑/更新/删除流程；缓存的未激活订阅可浏览但不控制其他正在运行的订阅。运行前显示静态成员，Provider 运行后从核心读取；自动策略未连接时不声称已选中某节点。
+- ClashControl 使用独立同 UID Messenger 回复通道，服务只接受 state/select/delay/cancel，调用新增的 JNI → GoClashAction，不启用 HTTP controller。原生 proxycontrol 只构造组名、类型、当前成员、数量与延迟 DTO，不序列化完整适配器，不传节点服务器、端口、密码、订阅 URL 或认证字段。只为当前浏览组发送成员，响应大小限制 256 KiB。
+- 运行时只允许 Selector 类型手动选择，核心检查目标属于真实组（包含 Provider 动态成员）；服务先验证、加密保存，再应用选择，失败回滚保存。UI 等待配置读回后开放下一次编辑。选择写入组 default-selected，并在 x-onetunnel.clash-selections 中按订阅 URL 的散列分别保存；订阅刷新/切换只恢复仍可用的静态成员或 Provider 选择。核心关闭独立的 store-selected 缓存，避免未加密的旧缓存覆盖配置。切换仅影响新连接，不重载 TUN 或清理其他隧道。
+- 延迟通过实际 C.Proxy.URLTest 测量，沿用组内部 testUrl/expectedStatus；未指定时使用核心默认测试 URL，使自动策略能消费相同 URL 的测量。只向 UI 提供该 URL 的延迟记录，失败/超时与未测试分开。四个专用服务线程及原生槽位限制并发，单次五秒；网络 I/O 不持有 coreMu，状态/选择/停止不排队等待整组测速。停止测速取消探测上下文；重载/停止轮换 generation 并取消旧探测，旧响应不能覆盖新配置。
+- 规则出口与节点管理分离：普通规则列出配置中的代理组及本机 WG/TS、DIRECT、REJECT；不删除旧单节点规则，在编辑时保留其原目标作为兼容项。MATCH 保留此前的简化入口，不自动改写订阅规则。
+- 宿主 Go 测试覆盖真实解析后的手动/自动/嵌套与 inline Provider 组、选择验证、恢复 default-selected、DTO 隐私、组测试设置、真实 loopback HTTP URLTest 与取消；JVM 覆盖独立订阅选择、刷新、失效成员和规则兼容。未进行 Android 实机 Binder/网格触摸/公网订阅逐节点测速验证。
+
 ## Tailscale 的身份与限制
 
 - OneTunnel 的认证调用经过 Mihomo `ParseProxy` 返回的 `autoCloseProxyAdapter`；overlay 显式转发 `OneTunnelAction`，避免接口嵌入丢失自定义方法。回归测试使用真实解析器包装，发送无效动作验证到达 Tailscale，且不启动网络或创建身份。

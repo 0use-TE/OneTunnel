@@ -88,6 +88,9 @@ object ClashImport {
         val existing = if (current.isBlank()) linkedMapOf() else ProfileEditor.root(current)
         val app = (existing["x-onetunnel"] as? Map<*, *>)?.entries?.associateTo(linkedMapOf<String, Any?>()) { it.key.toString() to it.value } ?: linkedMapOf()
         val oldManaged = ((app["subscription"] as? Map<*, *>)?.get("node-names") as? List<*>)?.toSet().orEmpty()
+        if (incoming.source != null && (app["subscription"] as? Map<*, *>)?.get("url") == incoming.source.url)
+            ClashProfiles.preserveSelections(current, remote)
+        ClashProfiles.restoreSelections(remote, app, incoming.source?.url)
         val local = (existing["proxies"] as? List<*>)?.filter { value ->
             val item = value as? Map<*, *>
             item?.get("type") in listOf("wireguard", "tailscale") && item?.get("name") !in oldManaged

@@ -5,6 +5,14 @@ go 1.26.0
 require github.com/metacubex/mihomo v0.0.0
 
 require (
+	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/mitchellh/go-ps v1.0.0 // indirect
+	github.com/tailscale/certstore v0.1.1-0.20260409135935-3638fb84b77d // indirect
+	github.com/tailscale/go-winio v0.0.0-20231025203758-c4f33415bf55 // indirect
+	github.com/tailscale/hujson v0.0.0-20221223112325-20486734a56a // indirect
+)
+
+require (
 	github.com/RyuaNerin/go-krypto v1.3.0 // indirect
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect

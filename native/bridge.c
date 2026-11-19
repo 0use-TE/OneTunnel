@@ -11,10 +11,21 @@ extern char *GoPrepareTailscale(char *home, char *config, char *name);
 extern char *GoTailscaleAction(char *name, char *action);
 extern char *GoReloadCore(char *config);
 extern char *GoPrepareCore(char *home, char *config);
+extern char *GoClashAction(char *action, char *group, char *target, char *generation);
 static JavaVM *vm = NULL;
 static jobject service = NULL;
 static jmethodID protect_method = NULL;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+
+JNIEXPORT jstring JNICALL Java_dev_dsh_onetunnel_NativeCore_clash(
+    JNIEnv *env, jobject self, jstring action, jstring group, jstring target, jstring generation) {
+    (void)self;
+    char *a=copy_utf8(env,action), *g=copy_utf8(env,group), *t=copy_utf8(env,target), *e=copy_utf8(env,generation);
+    if (!a || !g || !t || !e) { free(a);free(g);free(t);free(e);return NULL; }
+    char *response=GoClashAction(a,g,t,e);
+    free(a);free(g);free(t);free(e);
+    jstring result=from_utf8(env,response); free(response); return result;
+}
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *value, void *reserved) {
     (void)reserved;

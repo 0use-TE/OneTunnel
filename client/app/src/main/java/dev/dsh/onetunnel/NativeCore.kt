@@ -10,4 +10,5 @@ object NativeCore {
     external fun tailscale(name: String, action: String): String
     external fun reload(config: String): String
     external fun prepare(home: String, config: String): String
+    external fun clash(action: String, group: String, target: String, generation: String): String
 }

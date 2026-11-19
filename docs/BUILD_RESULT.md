@@ -1,5 +1,17 @@
 # 构建与静态验证记录
 
+## 0.3.15-alpha：Clash 代理组页面、节点切换与延迟测试（2026-11-19）
+
+- 点击 Clash 订阅/配置进入独立代理页；按配置顺序切换代理组，使用自适应 LazyVerticalGrid 节点卡片、搜索和选中边框。显示策略、实际当前节点与嵌套选择路径，自动组/故障转移/负载均衡保留自动策略；未启动时不显示虚构的自动结果。Provider 真实成员从运行组读取，同名成员按内核选择语义去重。编辑/更新/删除收进管理菜单，缓存未激活的订阅可浏览并启用；保留连接/规则/设置三页。
+- 新增同 UID Messenger → JNI → Go 窄接口，不开放 HTTP 控制器。组与节点使用显式安全 DTO，不序列化完整适配器，不传服务器、密码或订阅 URL。运行时验证手动 Selector 与真实组成员后保存/切换，修改立即作用于新连接，保留现有连接与 WG/TS，不重载整个 VPN。
+- 选择写入加密 YAML 的 default-selected，按订阅散列分别记录于 x-onetunnel.clash-selections；同订阅更新、订阅切换和重启恢复有效选择。关闭上游独立 store-selected 缓存，避免覆盖应用配置。静态成员离线可选，Provider 运行后验证动态成员；失败回滚保存，返回/离开页面时保留进行中的保存确认，防止 UI 使用过期配置。
+- 单节点与整组测速通过实际 Mihomo URLTest，沿用该组 testUrl/expectedStatus，默认使用核心默认测试 URL。最多四并发、单请求五秒，显示未测试、进行中、毫秒、失败/超时。专用探测线程不阻塞 VPN 控制，停止测速取消排队和活动请求；重载/停止切换 generation，旧响应不会污染新配置，跨组不混用不同 URL 的测量。
+- 普通规则出口只显示 Clash 组、本机 WG/TS、直连和阻止；MATCH 保留简化入口。不改写旧规则；已有直接引用单节点的条目，在编辑时单独保留其原出口，避免因 UI 精简改变路由。
+- 新增 8 项 JVM 测试，全部 80 项通过：组结构与策略、嵌套路径/循环保护、选择与配置保留、拒绝非法/自动组选择、规则菜单与旧规则兼容、刷新/失效节点、订阅独立选择、Provider 验证。新增 6 项 Go 测试通过：真实解析组及 inline Provider（含重复来源）/DTO 隐私、选择验证、恢复默认选择、组测试 URL/状态码、loopback HTTP 实际出站测试与取消。Windows 宿主测试依赖补充至 go.mod/go.sum。
+- 原生 ARM64 交叉编译、assembleDebug、lintDebug（0 错误 / 8 警告）、签名、JNI/Go 动态导出及空白检查通过。APK 原生库与本次构建逐字节一致，ELF LOAD 段为 16 KiB 对齐；开发签名和包名与 0.3.14 相同，可覆盖升级。忽略新增 Kotlin 编译缓存目录。
+- 只生成 APK，没有连接或安装用户设备；未执行实机 Binder/触摸网格、真实公网订阅逐节点测速、长时 Provider 刷新和后台行为验证。宿主测试不等同于上述端到端验证，验收步骤列于 USER_TEST_CHECKLIST.md。
+- APK：`artifacts/OneTunnel-0.3.15-alpha-arm64.apk`，versionCode 19，29,366,151 字节，SHA-256：`e5063047e51c6450f562bffb57d00a8f7eb29c4f8dcdf28b46f5b89ca9627d59`。
+
 ## 0.3.14-alpha：WireGuard 本机 TCP 端口转发（2026-11-19）
 
 - WG 编辑页加入与 TS 一致的“本机端口转发”，支持添加/移除最多 16 条 TCP 映射，默认无监听，新增行预填 8022 → 8022。共享 Kotlin 配置/控件改为 TunnelPortForwards，沿用原 listen-ports YAML 字段，已保存的 TS 配置无需迁移。有效修改完成后加密保存，运行中热重载，密钥、Peer 扩展、Keepalive 及规则保持原有编辑语义。

@@ -137,6 +137,9 @@ class MainActivity : ComponentActivity() {
         var addTailscale by remember { mutableStateOf(false) }
         var editingConnection by remember { mutableStateOf<ConnectionEntry?>(null) }
         var editingClashFile by remember { mutableStateOf(false) }
+        var clashPage by remember { mutableStateOf(false) }
+        var clashPageId by remember { mutableStateOf("") }
+        var clashPageSource by remember { mutableStateOf<ClashPreview?>(null) }
         var editingSubscription by remember { mutableStateOf<ClashPreview?>(null) }
         var pendingDeletion by remember { mutableStateOf<Pair<String, String?>?>(null) }
         var subscriptions by remember { mutableStateOf<List<SubscriptionEntry>>(emptyList()) }
@@ -145,6 +148,11 @@ class MainActivity : ComponentActivity() {
         val store = remember { ConfigStore(this) }
         val library = remember { SubscriptionLibrary(this) }
         val core = remember { CoreControl(this) }
+        val clash = remember { ClashControl(this) { done -> scope.launch {
+            runCatching { withContext(Dispatchers.IO) { store.load() } }
+                .onSuccess { text = it; saved = it }.onFailure { message = "代理选择已保存，请返回后重新打开配置。" }
+            done()
+        } } }
         val dirty = text != saved
         val view = remember(text, advanced) { if (advanced) null else runCatching { ProfileEditor.view(text) }.getOrNull() }
         val summary = remember(saved) { runCatching { ProfileCheck.check(saved) }.getOrNull() }
@@ -152,8 +160,9 @@ class MainActivity : ComponentActivity() {
         val addresses = remember(tab, status.state, foreground.value) { lanAddresses() }
         val selectedSubscription = remember(text, advanced) { if (advanced) null else ClashImport.subscription(text) }
         val matchOptions = remember(text) { runCatching { ConnectionEditing.matchOptions(text) }.getOrDefault(emptyMap()) }
+        val ruleOptions = remember(text) { runCatching { ClashProfiles.ruleOptions(text) }.getOrDefault(emptyMap()) }
         val connections = remember(text) { ConnectionPolicy.entries(text) }
-        val canToggle = !busy && !dirty && !core.updating && status.state !in listOf("preparing", "starting", "stopping", "auth", "auth-starting")
+        val canToggle = !busy && !dirty && !core.updating && !clash.selecting && status.state !in listOf("preparing", "starting", "stopping", "auth", "auth-starting")
         val tailscaleEntries = remember(text, advanced) { if (advanced) emptyList() else TailscaleProfiles.list(text) }
         fun openTailLogin(entry: TailscaleEntry, url: String) {
             runCatching {
@@ -184,7 +193,7 @@ class MainActivity : ComponentActivity() {
             }.onFailure { pendingTailLogin = null; message = "无法启动登录服务，请检查后台服务权限。" }
         }
         fun persist(next: String, afterSave: (suspend () -> Unit)? = null) {
-            if (busy || core.updating || status.state in listOf("preparing", "starting", "stopping", "auth", "auth-starting")) {
+            if (busy || core.updating || clash.selecting || status.state in listOf("preparing", "starting", "stopping", "auth", "auth-starting")) {
                 message = "正在处理连接，请稍后再试。"; return
             }
             busy = true; message = ""
@@ -217,6 +226,7 @@ class MainActivity : ComponentActivity() {
                 .onFailure { message = if (it is IllegalArgumentException) it.message ?: "WG 配置无效。" else "WG 配置无法读取。" }
         }
         BackHandler(advanced) { advanced = false }
+        BackHandler(clashPage) { clashPage = false }
         LaunchedEffect(Unit) {
             runCatching { withContext(Dispatchers.IO) { store.load() } }
                 .onSuccess { text = it; saved = it }
@@ -230,7 +240,7 @@ class MainActivity : ComponentActivity() {
             delay(450)
             if (runCatching { ProfileCheck.check(text) }.isSuccess) applyChange(text)
         }
-        DisposableEffect(Unit) { onDispose { core.unbind() } }
+        DisposableEffect(Unit) { onDispose { core.unbind(); clash.unbind(force = true) } }
         LaunchedEffect(core.reloadFailed) { if (core.reloadFailed && status.state == "running") stopTunnel() }
         LaunchedEffect(status.active, foreground.value, core.updating) {
             if (!status.active || (!foreground.value && !core.updating)) { core.unbind(); return@LaunchedEffect }
@@ -266,8 +276,8 @@ class MainActivity : ComponentActivity() {
                 delay(1000)
             }
         }
-        DisposableEffect(advanced, tab, wgPreview != null, subscriptionDialog, clashPreview != null, addTailscale, editingConnection, editingSubscription) {
-            if (advanced || tab == 2 || wgPreview != null || subscriptionDialog || clashPreview != null || addTailscale || editingConnection != null || editingSubscription != null) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        DisposableEffect(advanced, tab, wgPreview != null, subscriptionDialog, clashPreview != null, addTailscale, editingConnection, editingSubscription, clashPage) {
+            if (advanced || clashPage || tab == 2 || wgPreview != null || subscriptionDialog || clashPreview != null || addTailscale || editingConnection != null || editingSubscription != null) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
             onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
         }
@@ -333,12 +343,12 @@ class MainActivity : ComponentActivity() {
         MaterialTheme(colorScheme = colors) {
             Scaffold(containerColor = colors.background,
                 topBar = { TopAppBar(
-                    title = { Text(if (advanced) "高级配置" else listOf("OneTunnel", "分流规则", "设置")[tab], fontWeight = FontWeight.Bold) },
-                    navigationIcon = { if (advanced) IconButton(onClick = { advanced = false }) { Icon(Icons.Default.ArrowBack, "返回") } },
+                    title = { Text(if (clashPage) "Clash 代理" else if (advanced) "高级配置" else listOf("OneTunnel", "分流规则", "设置")[tab], fontWeight = FontWeight.Bold) },
+                    navigationIcon = { if (advanced || clashPage) IconButton(onClick = { if (clashPage) clashPage = false else advanced = false }) { Icon(Icons.Default.ArrowBack, "返回") } },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background)
                 ) },
                 bottomBar = { Column {
-                    if (!advanced) NavigationBar(containerColor = colors.surface, tonalElevation = 0.dp) {
+                    if (!advanced && !clashPage) NavigationBar(containerColor = colors.surface, tonalElevation = 0.dp) {
                     listOf("连接", "规则", "设置").forEachIndexed { index, label ->
                         NavigationBarItem(selected = tab == index, onClick = { tab = index },
                             icon = { Icon(listOf(Icons.Default.Home, Icons.Default.List, Icons.Default.Settings)[index], label) },
@@ -347,7 +357,24 @@ class MainActivity : ComponentActivity() {
                 } } }
             ) { padding ->
                 Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
-                Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().verticalScroll(rememberScrollState())
+                if (clashPage) {
+                    val current = clashPageId == (selectedSubscription?.let { SubscriptionLibrary.id(it.url) } ?: "")
+                    val source = clashPageSource?.source
+                    val pageProfile = if (current) text else clashPageSource?.yaml.orEmpty()
+                    val activeSource = current && ConnectionPolicy.subscriptionEnabled(text)
+                    Column(Modifier.widthIn(max = 1120.dp).fillMaxSize()) {
+                        if (message.isNotBlank()) Text(message, modifier = Modifier.padding(20.dp), color = colors.error)
+                        ClashProxyPage(pageProfile, if (current) selectedSubscription?.name ?: "Clash 配置" else source?.name ?: "Clash 配置",
+                            activeSource, activeSource && status.state == "running" && !core.updating,
+                            canToggle, foreground.value, clash,
+                            activate = { update { if (current) ConnectionPolicy.setSubscription(text, true)
+                                else ConnectionPolicy.setSubscription(ClashImport.apply(text, requireNotNull(clashPageSource), false), true) } },
+                            selectOffline = { group, node -> update { ClashProfiles.select(text, group, node) } },
+                            manage = { if (clashPageId.isEmpty()) editingClashFile = true else editingSubscription = clashPageSource },
+                            update = source?.let { subscription -> { fetchSubscription(subscription.name, subscription.url) } },
+                            modifier = Modifier.weight(1f))
+                    }
+                } else Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().verticalScroll(rememberScrollState())
                     .padding(horizontal = 24.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     if (advanced) {
@@ -384,9 +411,11 @@ class MainActivity : ComponentActivity() {
                             }
                             if (status.state == "error") Note(status.message, error = true)
                             Button(onClick = { addConnection = true }, enabled = canToggle, modifier = Modifier.fillMaxWidth()) { Text("添加连接") }
-                            if (selectedSubscription == null && (summary?.nodes ?: 0) > connections.size) {
+                            if (selectedSubscription == null && matchOptions.values.any { it == "Clash" }) {
                                 SectionLabel("Clash")
-                                ConnectionCard("Clash 配置", ConnectionPolicy.subscriptionEnabled(text), canToggle, { editingClashFile = true }) {
+                                ConnectionCard("Clash 配置", ConnectionPolicy.subscriptionEnabled(text), canToggle, {
+                                    clashPageId = ""; clashPageSource = null; clashPage = true
+                                }) {
                                     update { ConnectionPolicy.setSubscription(text, it) }
                                 }
                             }
@@ -399,7 +428,7 @@ class MainActivity : ComponentActivity() {
                                         busy = true; message = ""
                                         scope.launch {
                                             runCatching { withContext(Dispatchers.IO) { library.load(entry.id) } }
-                                                .onSuccess { editingSubscription = it }
+                                                .onSuccess { clashPageSource = it; clashPageId = entry.id; clashPage = true }
                                                 .onFailure { message = "订阅读取失败。" }
                                             busy = false
                                         }
@@ -549,9 +578,10 @@ class MainActivity : ComponentActivity() {
                             else ClashPreview(cached.yaml, cached.nodes, cached.groups, cached.rules, cached.warnings, SubscriptionSource(name, url, old.updatedAt))
                         val merged = if (!selected) null else if (url == old.url) ConnectionEditing.subscriptionMeta(text, edited.source!!)
                             else ConnectionPolicy.setSubscription(ClashImport.apply(text, edited, false), ConnectionPolicy.subscriptionEnabled(text))
-                        merged to library.save(edited, SubscriptionLibrary.id(old.url))
-                    } }.onSuccess { (merged, entries) ->
+                        Triple(merged, library.save(edited, SubscriptionLibrary.id(old.url)), edited)
+                    } }.onSuccess { (merged, entries, edited) ->
                         busy = false; subscriptions = entries; editingSubscription = null
+                        if (clashPage) { clashPageSource = edited; clashPageId = SubscriptionLibrary.id(edited.source!!.url) }
                         if (merged != null) applyChange(merged)
                     }.onFailure { busy = false; message = if (it is IllegalArgumentException) it.message ?: "配置无效。" else "订阅修改失败。" }
                 }
@@ -572,6 +602,7 @@ class MainActivity : ComponentActivity() {
                             val next = if (target.second == null) ConnectionRemoval.node(text, target.first)
                                 else if (currentSubscription) ConnectionRemoval.subscription(text) else null
                             pendingDeletion = null; editingConnection = null; editingSubscription = null
+                            if (target.second != null) clashPage = false
                             if (next != null) persist(next) {
                                 target.second?.takeIf { it.isNotEmpty() }?.let { id -> subscriptions = withContext(Dispatchers.IO) { library.remove(id) } }
                             } else scope.launch {
@@ -616,14 +647,15 @@ class MainActivity : ComponentActivity() {
                 update { TailscaleProfiles.add(text, name, hostname, control) }
                 addTailscale = false
             }
-            if (addRule && view != null) RuleDialog(matchOptions.keys.toList(), matchOptions,
-                RoutingRule("DOMAIN-SUFFIX", "", view.match.takeIf { it in matchOptions } ?: "REJECT"), false, canToggle, { addRule = false }) { next ->
+            if (addRule && view != null) RuleDialog(ruleOptions.keys.toList(), ruleOptions,
+                RoutingRule("DOMAIN-SUFFIX", "", view.match.takeIf { it in ruleOptions } ?: "REJECT"), false, canToggle, { addRule = false }) { next ->
                 val changed = ProfileEditor.addRule(text, next.type, next.target, next.exit)
                 applyChange(changed)
                 addRule = false
             }
             editingRule?.let { (index, expected) -> ProfileEditor.editableRule(expected)?.let { initial ->
-                RuleDialog((matchOptions.keys + initial.exit).distinct(), matchOptions, initial, true, canToggle, { editingRule = null }) { next ->
+                val options = if (initial.type == "MATCH") matchOptions else ruleOptions
+                RuleDialog((options.keys + initial.exit).distinct(), options, initial, true, canToggle, { editingRule = null }) { next ->
                     val changed = ProfileEditor.replaceRule(text, index, expected, next)
                     applyChange(changed)
                     editingRule = null

@@ -23,9 +23,12 @@ import androidx.annotation.Keep
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.Semaphore
 
 class TunnelService : VpnService() {
     private val worker = Executors.newSingleThreadExecutor()
+    private val proxyTests = Executors.newFixedThreadPool(4)
+    private val proxyTestSlots = Semaphore(4)
     private val main = Handler(Looper.getMainLooper())
     private val launched = AtomicBoolean(false)
     private val terminating = AtomicBoolean(false)
@@ -49,6 +52,13 @@ class TunnelService : VpnService() {
         val name = message.data.getString("name").orEmpty()
         val action = message.data.getString("action").orEmpty()
         val requestId = message.arg1
+        if (action in listOf("clash-state", "clash-select", "clash-delay", "clash-cancel")) {
+            val target = message.data.getString("target").orEmpty()
+            val generation = message.data.getString("generation").orEmpty()
+            if (name.length <= 512 && target.length <= 512 && generation.length <= 32)
+                dispatchClash(reply, requestId, action.removePrefix("clash-"), name, target, generation)
+            return@Handler true
+        }
         if (name.length > 512 || action !in listOf("status", "login", "logout", "reload")) return@Handler true
         worker.execute {
             val result = runCatching {
@@ -81,6 +91,37 @@ class TunnelService : VpnService() {
         true
     })
     override fun onBind(intent: Intent?): IBinder? = if (intent?.action == CONTROL) control.binder else super.onBind(intent)
+    private fun dispatchClash(reply: Messenger, id: Int, action: String, group: String, target: String, generation: String) {
+        fun respond(value: String) { runCatching { reply.send(Message.obtain(null, CONTROL_RESPONSE).apply {
+            arg1 = id; data = Bundle().apply { putString("result", value) }
+        }) } }
+        val probe = action == "delay"
+        if (probe && !proxyTestSlots.tryAcquire()) { respond("{\"error\":\"测速繁忙，请稍后重试\"}"); return }
+        (if (probe) proxyTests else worker).execute {
+            try {
+                val result = runCatching {
+                    check(nativeReady && !authOnly && !terminating.get())
+                    if (action != "select") NativeCore.clash(action, group, target, generation)
+                    else {
+                        val validation = NativeCore.clash("validate", group, target, generation)
+                        if (JSONObject(validation).has("error")) validation else {
+                            val store = ConfigStore(this)
+                            val before = store.load()
+                            check(ConnectionPolicy.subscriptionEnabled(before))
+                            val next = ClashProfiles.select(before, group, target, runtimeValidated = true)
+                            store.save(next)
+                            val selected = NativeCore.clash("select", group, target, generation)
+                            if (JSONObject(selected).has("error")) {
+                                runCatching { store.save(before) }.onFailure { terminate("error", "代理选择保存失败，请检查配置") }
+                            }
+                            selected
+                        }
+                    }
+                }.getOrDefault("{\"error\":\"代理操作失败，请检查连接状态\"}")
+                respond(result)
+            } finally { if (probe) proxyTestSlots.release() }
+        }
+    }
     private val pollAuth = object : Runnable {
         override fun run() {
             if (terminating.get() || !authOnly) return
@@ -233,6 +274,7 @@ class TunnelService : VpnService() {
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         worker.shutdownNow()
+        proxyTests.shutdownNow()
         // This service is in :vpn. Killing it cannot kill the Compose UI, Clash, or Termux,
         // and guarantees that a partially initialized Go runtime cannot keep sockets alive.
         Process.killProcess(Process.myPid())

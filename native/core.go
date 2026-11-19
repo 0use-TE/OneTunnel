@@ -272,6 +272,7 @@ func GoStartCore(homeText, configText *C.char, androidFD C.int) (result *C.char)
 	configured = true // Mark before applying so failure cleanup can close partially started outbounds.
 	executor.ApplyConfig(cfg, true)
 	stage = "Android TUN attachment"
+	rotateClashSession()
 	fd, err := syscall.Dup(int(androidFD))
 	if err != nil {
 		stopLocked()
@@ -354,6 +355,9 @@ func parseCoreProfile(text string) (*config.Config, error) {
 	raw.LogLevel = log.SILENT
 	raw.FindProcessMode = process.FindProcessOff
 	raw.Mode = tunnel.Rule
+	// App selections are persisted in encrypted YAML as default-selected.
+	// Ignore Mihomo's separate unencrypted selector cache on every reload.
+	raw.Profile.StoreSelected = false
 	raw.DNS.Listen = ""
 	cfg, err := config.ParseRawConfig(raw)
 	if err != nil {
@@ -398,6 +402,7 @@ func GoReloadCore(configText *C.char) (result *C.char) {
 		_ = proxy.Close()
 	}
 	executor.ApplyConfig(cfg, true)
+	rotateClashSession()
 	if err := startTunnelInbounds(); err != nil {
 		stopLocked()
 		return errorString("tunnel inbound", err)
@@ -406,6 +411,8 @@ func GoReloadCore(configText *C.char) (result *C.char) {
 }
 
 func stopLocked() {
+	rotateClashSession()
+	cancelClash()
 	if stopRouteTrace != nil {
 		stopRouteTrace()
 		stopRouteTrace = nil
