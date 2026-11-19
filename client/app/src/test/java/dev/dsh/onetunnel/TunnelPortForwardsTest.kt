@@ -3,18 +3,18 @@ package dev.dsh.onetunnel
 import org.junit.Assert.*
 import org.junit.Test
 
-class TailscalePortForwardsTest {
+class TunnelPortForwardsTest {
     private val profile = """
         dns: {enable: true, nameserver-policy: {'+.ts.net': 'tailscale://TAIL'}}
         proxies:
           - {name: TAIL, type: tailscale, hostname: device, state-dir: unchanged-identity, auth-key: test-secret, accept-routes: true}
         rules: ["IP-CIDR,100.64.0.0/10,TAIL,no-resolve", "MATCH,DIRECT"]
     """.trimIndent()
-    private val forwards = listOf(TailscalePortForward(8022), TailscalePortForward(2222, 8022))
+    private val forwards = listOf(TunnelPortForward(8022), TunnelPortForward(2222, 8022))
     private fun withForwards() = ConnectionEditing.tailscale(profile, "TAIL", "TAIL", "device", "", true, forwards)
 
     @Test fun existingProfilesKeepAllInboundPortsClosedByDefault() {
-        assertTrue(TailscalePortForwards.read(ConnectionEditing.node(profile, "TAIL")).isEmpty())
+        assertTrue(TunnelPortForwards.read(ConnectionEditing.node(profile, "TAIL")).isEmpty())
         val edited = ConnectionEditing.tailscale(profile, "TAIL", "TAIL", "renamed-device", "", true)
         assertFalse(ConnectionEditing.node(edited, "TAIL").containsKey("listen-ports"))
         ProfileCheck.check(edited)
@@ -24,7 +24,7 @@ class TailscalePortForwardsTest {
         val edited = withForwards()
         val before = ConnectionEditing.node(profile, "TAIL")
         val after = ConnectionEditing.node(edited, "TAIL").toMutableMap()
-        assertEquals(forwards, TailscalePortForwards.read(after))
+        assertEquals(forwards, TunnelPortForwards.read(after))
         after.remove("listen-ports")
         assertEquals(before, after)
         assertEquals(ProfileEditor.view(profile).rules, ProfileEditor.view(edited).rules)
@@ -35,7 +35,7 @@ class TailscalePortForwardsTest {
     @Test fun renameAndUnrelatedEditKeepForwardsAndRemovingLastPortClosesThem() {
         val renamed = ConnectionEditing.tailscale(withForwards(), "TAIL", "NEW", "new-device", "", true)
         val node = ConnectionEditing.node(renamed, "NEW")
-        assertEquals(forwards, TailscalePortForwards.read(node))
+        assertEquals(forwards, TunnelPortForwards.read(node))
         assertEquals("unchanged-identity", node["state-dir"])
         val removed = ConnectionEditing.tailscale(renamed, "NEW", "NEW", "new-device", "", true, emptyList())
         assertFalse(ConnectionEditing.node(removed, "NEW").containsKey("listen-ports"))
@@ -44,12 +44,12 @@ class TailscalePortForwardsTest {
     @Test fun disabledRuntimeRemovesListenerButKeepsSavedConfigForReenable() {
         val edited = withForwards()
         val disabled = ConnectionPolicy.setEnabled(edited, "TAIL", false)
-        assertEquals(forwards, TailscalePortForwards.read(ConnectionEditing.node(disabled, "TAIL")))
+        assertEquals(forwards, TunnelPortForwards.read(ConnectionEditing.node(disabled, "TAIL")))
         val runtime = ProfileEditor.root(ConnectionPolicy.runtime(disabled))
         assertTrue((runtime["proxies"] as List<*>).none { (it as Map<*, *>)["type"] == "tailscale" })
         assertFalse(ConnectionPolicy.runtime(disabled).contains("listen-ports"))
         val enabled = ConnectionPolicy.runtime(ConnectionPolicy.setEnabled(disabled, "TAIL", true))
-        assertEquals(forwards, TailscalePortForwards.read(ConnectionEditing.node(enabled, "TAIL")))
+        assertEquals(forwards, TunnelPortForwards.read(ConnectionEditing.node(enabled, "TAIL")))
     }
 
     @Test fun subscriptionReplacementKeepsLocalTailscaleForwardsAndIdentity() {
@@ -76,10 +76,10 @@ class TailscalePortForwardsTest {
             root["proxies"] = listOf(node)
             assertThrows(IllegalArgumentException::class.java) { ProfileCheck.check(ProfileEditor.dump(root)) }
         }
-        assertEquals(listOf(TailscalePortForward(8022)),
-            TailscalePortForwards.read(mapOf("listen-ports" to listOf(mapOf("port" to 8022L)))))
+        assertEquals(listOf(TunnelPortForward(8022)),
+            TunnelPortForwards.read(mapOf("listen-ports" to listOf(mapOf("port" to 8022L)))))
         assertThrows(IllegalArgumentException::class.java) {
-            ConnectionEditing.tailscale(profile, "TAIL", "TAIL", "device", "", true, listOf(TailscalePortForward(8022, -1)))
+            ConnectionEditing.tailscale(profile, "TAIL", "TAIL", "device", "", true, listOf(TunnelPortForward(8022, -1)))
         }
     }
 }

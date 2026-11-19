@@ -31,6 +31,9 @@ private class PeerFields(value: Map<*, *>) {
 
 @Composable internal fun WireGuardEditDialog(profile: String, originalName: String, dismiss: () -> Unit, remove: () -> Unit, save: (String) -> Unit) {
     val node = remember { ConnectionEditing.node(profile, originalName) }
+    val ports = remember { mutableStateListOf<TunnelPortFields>().apply {
+        TunnelPortForwards.read(node).forEach { add(TunnelPortFields(it)) }
+    } }
     var name by remember { mutableStateOf(originalName) }
     var privateKey by remember { mutableStateOf(node["private-key"]?.toString().orEmpty()) }
     var address by remember { mutableStateOf(listOfNotNull(node["ip"], node["ipv6"]).joinToString(", ") { value ->
@@ -77,6 +80,7 @@ private class PeerFields(value: Map<*, *>) {
                     DropdownMenuItem(text = { Text(label) }, onClick = { mode = value; expanded = false })
                 } }
             }
+            PortForwardEditor(ports)
             if (error.isNotBlank()) Note(error, error = true)
             DeleteConnectionButton(remove)
         }
@@ -92,7 +96,7 @@ private class PeerFields(value: Map<*, *>) {
                     if (peer.psk.isNotBlank()) appendLine("PresharedKey = ${peer.psk}")
                 }
             }
-            save(ConnectionEditing.wireGuard(profile, originalName, name, conf, mode))
+            save(ConnectionEditing.wireGuard(profile, originalName, name, conf, mode, ports.map { it.value() }))
         }.onFailure { error = if (it is IllegalArgumentException) it.message ?: "配置无效。" else "无法修改连接。" }
     }) { Text("完成") } }, dismissButton = { TextButton(onClick = dismiss) { Text("取消") } })
 }
@@ -104,26 +108,15 @@ private class PeerFields(value: Map<*, *>) {
     var hostname by remember { mutableStateOf(node["hostname"]?.toString() ?: "onetunnel-android") }
     var control by remember { mutableStateOf(node["control-url"]?.toString().orEmpty()) }
     var routes by remember { mutableStateOf(node["accept-routes"] == true) }
-    val initialPorts = remember { TailscalePortForwards.read(node) }
-    val ports = remember { mutableStateListOf<TailscalePortFields>().apply { initialPorts.forEach { add(TailscalePortFields(it)) } } }
+    val initialPorts = remember { TunnelPortForwards.read(node) }
+    val ports = remember { mutableStateListOf<TunnelPortFields>().apply { initialPorts.forEach { add(TunnelPortFields(it)) } } }
     var error by remember { mutableStateOf("") }
     AlertDialog(onDismissRequest = dismiss, title = { Text("编辑 Tailscale") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             EditField("名称", name, { name = it }); EditField("设备名", hostname, { hostname = it })
             EditField("Headscale 地址（可选）", control, { control = it })
             ToggleRow("接受子网路由", routes, true) { routes = it }
-            HorizontalDivider()
-            Text("本机端口转发", style = MaterialTheme.typography.titleMedium)
-            ports.forEach { port -> key(port) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(port.port, { port.port = it }, label = { Text("入站端口") }, singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
-                    OutlinedTextField(port.local, { port.local = it }, label = { Text("本机端口") }, singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
-                }
-                TextButton(onClick = { ports.remove(port) }) { Text("移除端口") }
-            } }
-            TextButton(onClick = { ports.add(TailscalePortFields(TailscalePortForward(8022))) }, enabled = ports.size < 16) { Text("添加端口") }
+            PortForwardEditor(ports)
             if (control.trim() != node["control-url"]?.toString().orEmpty()) Note("更换服务后需要重新登录。")
             status(name != originalName || hostname != (node["hostname"]?.toString() ?: "onetunnel-android") ||
                 control != node["control-url"]?.toString().orEmpty() || routes != (node["accept-routes"] == true) ||
@@ -133,19 +126,33 @@ private class PeerFields(value: Map<*, *>) {
         }
     }, confirmButton = { TextButton(onClick = {
         runCatching {
-            val forwards = ports.map {
-                TailscalePortForward(requireNotNull(it.port.toIntOrNull()) { "入站端口需为 1–65535 的整数。" },
-                    requireNotNull(it.local.toIntOrNull()) { "本机端口需为 1–65535 的整数。" })
-            }
+            val forwards = ports.map { it.value() }
             save(ConnectionEditing.tailscale(profile, originalName, name, hostname, control, routes, forwards))
         }
             .onFailure { error = if (it is IllegalArgumentException) it.message ?: "配置无效。" else "无法修改连接。" }
     }) { Text("完成") } }, dismissButton = { TextButton(onClick = dismiss) { Text("取消") } })
 }
 
-private class TailscalePortFields(value: TailscalePortForward) {
+private class TunnelPortFields(value: TunnelPortForward) {
     var port by mutableStateOf(value.port.toString())
     var local by mutableStateOf(value.localPort.toString())
+    fun value() = TunnelPortForward(requireNotNull(port.toIntOrNull()) { "入站端口需为 1–65535 的整数。" },
+        requireNotNull(local.toIntOrNull()) { "本机端口需为 1–65535 的整数。" })
+}
+
+@Composable private fun PortForwardEditor(ports: MutableList<TunnelPortFields>) {
+    HorizontalDivider()
+    Text("本机端口转发", style = MaterialTheme.typography.titleMedium)
+    ports.forEach { port -> key(port) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(port.port, { port.port = it }, label = { Text("入站端口") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+            OutlinedTextField(port.local, { port.local = it }, label = { Text("本机端口") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+        }
+        TextButton(onClick = { ports.remove(port) }) { Text("移除端口") }
+    } }
+    TextButton(onClick = { ports.add(TunnelPortFields(TunnelPortForward(8022))) }, enabled = ports.size < 16) { Text("添加端口") }
 }
 
 @Composable internal fun DeleteConnectionButton(remove: () -> Unit, enabled: Boolean = true) {

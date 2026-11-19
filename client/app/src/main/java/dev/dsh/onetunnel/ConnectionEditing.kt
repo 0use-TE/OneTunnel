@@ -59,7 +59,8 @@ object ConnectionEditing {
         return ProfileEditor.dump(root)
     }
 
-    fun wireGuard(text: String, oldName: String, name: String, conf: String, mode: String): String {
+    fun wireGuard(text: String, oldName: String, name: String, conf: String, mode: String,
+        forwards: List<TunnelPortForward>? = null): String {
         val parsed = WireGuardImport.parse(conf)
         require(mode in listOf(ProfileEditor.WG_ROUTES, ProfileEditor.WG_MATCH, ProfileEditor.WG_OUTBOUND_ONLY))
         require(mode != ProfileEditor.WG_ROUTES || !parsed.hasDefaultRoute) { "默认网段请选择“其他流量”或“仅添加出口”。" }
@@ -67,6 +68,7 @@ object ConnectionEditing {
         val merged = old.toMutableMap()
         listOf("ip", "ipv6", "dns", "remote-dns-resolve", "mtu", "server", "port", "public-key", "pre-shared-key").forEach { merged.remove(it) }
         merged.putAll(parsed.outbound); merged["name"] = name.trim()
+        if (forwards != null) TunnelPortForwards.write(merged, forwards)
         if (old["dns"] == parsed.outbound["dns"] && old["remote-dns-resolve"] is Boolean)
             merged["remote-dns-resolve"] = old["remote-dns-resolve"]
         val peers = (old["peers"] as? List<*>).orEmpty()
@@ -89,11 +91,11 @@ object ConnectionEditing {
     }
 
     fun tailscale(text: String, oldName: String, name: String, hostname: String, control: String, acceptRoutes: Boolean,
-        forwards: List<TailscalePortForward>? = null): String {
+        forwards: List<TunnelPortForward>? = null): String {
         TailscaleProfiles.add("", name, hostname, control) // Reuse setup validation without touching existing state.
         val old = node(text, oldName)
         val edited = old.toMutableMap()
-        if (forwards != null) TailscalePortForwards.write(edited, forwards)
+        if (forwards != null) TunnelPortForwards.write(edited, forwards)
         edited["name"] = name.trim(); edited["hostname"] = hostname; edited["accept-routes"] = acceptRoutes
         if (control.isBlank()) edited.remove("control-url") else edited["control-url"] = control.trim()
         if (old["control-url"].toString().let { if (it == "null") "" else it } != control.trim()) {

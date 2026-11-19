@@ -112,9 +112,16 @@ HTTP 代理设置使用应用元数据 `http-enabled`、`lan-port` 和既有 LAN
 - accept-routes 不等于自动把 Android 所有目标送入 Tailscale：还需正确的 Mihomo rules，且 tailnet 侧子网路由已发布、批准并获 ACL 允许。
 - 出口节点和 MagicDNS 的源码能力存在，但未做本设备实测。
 - tsnet 支持通过 Server.Listen 注册入站；上游适配器未注册时，未处理的本机 TCP 端口会被拒绝。这不表示 tsnet 只能出站。官方 Android 同样使用用户态 WireGuard 引擎，配合系统 TUN 将流量送到宿主网络栈；不能将差异归因于“官方使用内核 WireGuard”。
-- 0.3.13 增加 `listen-ports: [{port: 8022, local-port: 8022}]`。固定源码补丁给 TailscaleOption 增加配置、构造时验证、启动时注册 tsnet TCP listener、关闭时清理。转发器独立放在 `native/overlay/onetunnel_tailscale_forward.go`；监听只在当前 tsnet 节点地址上，目标固定 IPv4 loopback，最多 16 个监听与 64 个活动连接。每条连接双向复制并保留 TCP 半关闭，失败或停止时关闭套接字；本机服务失败不会回退其他主机或出站。
+- 0.3.13 增加 `listen-ports: [{port: 8022, local-port: 8022}]`。固定源码补丁给 TailscaleOption 增加配置、构造时验证、启动时注册 tsnet TCP listener、关闭时清理。转发器在 0.3.14 合并至 `native/overlay/onetunnel_forward.go`；TS 监听只在当前 tsnet 节点地址上，目标固定 IPv4 loopback，每条连接最多 16 个监听与 64 个活动流。每条流双向复制并保留 TCP 半关闭，失败或停止时关闭套接字；本机服务失败不会回退其他主机或出站。
 - `OneTunnelStartInbound` 经过 autoCloseProxyAdapter 显式转发。统一 VPN 完成 TUN 接入，以及热重载替换旧出站后，主动启动配置了端口的 Tailscale，避免依赖 UI 轮询或首次出站请求。未配置端口的适配器保持惰性启动；普通配置预检查不启动 tsnet；无 TUN 认证会话在解析前移除端口字段。启动失败停止 VPN 并返回固定错误类别，不暴露原始配置。
 - 编辑、关闭、删除连接沿用原有保存和重载流程；旧监听和活动转发随旧适配器关闭。仅修改端口不改变 state-dir 或认证身份。端口不经过 Mihomo 的出站分流，仍受 Tailnet 的网络访问策略和本机服务认证控制；这里没有实现 Tailscale SSH、UDP 端口转发、完整 IP 转发、局域网发现或完整官方 App 的平台集成。
+
+## WireGuard 本机 TCP 转发（0.3.14）
+
+- WG 与 TS 使用相同 `listen-ports` 结构、配置验证、编辑控件和共享转发器。普通导入/编辑保持原端口设置，显式传入空列表才移除；旧连接默认无监听。开关、删除、订阅替换沿用原有连接策略，禁用的 WG 在运行配置中不存在，不启动其监听。
+- 构造 WG 时只验证端口。统一 VPN 启动/重载的 `startTunnelInbounds` 通过包装接口主动初始化有端口配置的 WG，避免依赖首次出站。初始化时在现有 mipstack/gVisor 设备的 `ListenTCP` 上绑定虚拟双栈端口，不打开 Android/Wi-Fi 的 TCP listener，也不接管 `.conf` ListenPort。WG 关闭时取消转发上下文、关闭监听及活动本机连接，随后关闭设备。启动失败返回通用的固定 `TUNNEL_INBOUND_FAILED` 类别并停止 VPN。
+- 传入数据仍需有效 WG 对端密钥、AllowedIPs 和路由。NAT 端点发现/保持由原有 WG Endpoint/Keepalive 参数负责；不会为了打开入站而修改密钥、Peer 网段或 Keepalive。该转发不新增 Mihomo 规则，也不将接收服务访问交给 MATCH；本机 SSH 仍要求 sshd 启动及正常认证。
+- 回归测试在宿主 UDP loopback 上创建真实 WireGuard 对端，分别运行默认 mipstack 和 gVisor：加密传输、原有出站 TCP、IPv4/IPv6 入站、二进制数据与半关闭、未配置端口拒绝，以及关闭 WG 后清理本机活动连接。测试不是用户真实 WG 服务端/NAT/Android 后台环境的实测。
 
 ## 订阅与字符传输
 

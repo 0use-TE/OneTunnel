@@ -1,5 +1,15 @@
 # 构建与静态验证记录
 
+## 0.3.14-alpha：WireGuard 本机 TCP 端口转发（2026-11-19）
+
+- WG 编辑页加入与 TS 一致的“本机端口转发”，支持添加/移除最多 16 条 TCP 映射，默认无监听，新增行预填 8022 → 8022。共享 Kotlin 配置/控件改为 TunnelPortForwards，沿用原 listen-ports YAML 字段，已保存的 TS 配置无需迁移。有效修改完成后加密保存，运行中热重载，密钥、Peer 扩展、Keepalive 及规则保持原有编辑语义。
+- 固定 Mihomo 增加 wireguard-inbound.patch，通过原有 WG 用户态协议栈 ListenTCP 监听虚拟 IPv4/IPv6 端口，目标固定 127.0.0.1。复用共享转发器，保留二进制数据和半关闭；不打开手机 LAN TCP 端口，不修改 .conf ListenPort、系统路由或 NAT 参数。停止/禁用/删除和重载时清理旧监听与活动流。
+- 统一 VPN 启动与重载主动初始化配置了入站的 WG，无需首次出站触发；预检查及普通构造不启动设备。通用启动接口同样服务 TS，错误统一为 TUNNEL_INBOUND_FAILED。构建脚本复制新共享 overlay、清理旧 TS 专用文件，并幂等应用三个补丁。
+- Go 共 9 项顶层回归测试通过。新增真实加密 WireGuard UDP loopback 对端测试，分别覆盖默认 mipstack 和可选 gVisor：同一实例原有 TCP 出站、IPv4/IPv6 入站、SSH banner、二进制响应和半关闭、未配置端口拒绝、关闭 WG 后本机活动连接释放；新增真实解析器包装/默认关闭/配置校验测试。原 TS 包装与共享转发测试继续通过。
+- 新增 5 项 WG 配置 JVM 测试，全部 72 项通过，覆盖默认关闭、编辑保留凭据与规则、重命名/移除、禁用再启用、订阅替换与无效端口拒绝。原生 ARM64 交叉编译、assembleDebug、lintDebug（0 错误 / 8 警告）、APK 签名及空白检查通过；APK 内原生库与构建库逐字节一致，ELF LOAD 段为 16 KiB 对齐。
+- 包名及开发签名与 0.3.13 一致，可覆盖升级。仅构建 APK，没有连接或安装用户设备；真实手机 WG 服务端、NAT、Peer 间路由和 SSH 登录尚待用户验证。测试不是 Android 设备端到端验证，用户步骤见 USER_TEST_CHECKLIST.md。
+- APK：`artifacts/OneTunnel-0.3.14-alpha-arm64.apk`，versionCode 18，28,884,647 字节，SHA-256：`6ef87ff213d02f407a8472b9bf7d1a53adae64029e91df3e9840442cfcfa17ed`。
+
 ## 0.3.13-alpha：Tailscale 本机 TCP 端口转发（2026-11-19）
 
 - Tailscale 编辑页增加“本机端口转发”，支持添加/移除最多 16 条入站端口 → 本机端口映射，新增行预填 8022 → 8022；旧连接默认没有转发。校验整数、范围与重复端口，完成后加密保存，运行中沿用热重载。端口调整保留节点身份、凭据、DNS 与分流规则。

@@ -12,9 +12,14 @@ $upstream = Join-Path $projectRoot 'upstream/mihomo'
 if (-not (Test-Path -LiteralPath (Join-Path $upstream 'adapter/outbound/tailscale.go'))) { throw 'Fetch the pinned Mihomo source first.' }
 Copy-Item -LiteralPath (Join-Path $projectRoot 'native/overlay/onetunnel_tailscale.go') -Destination (Join-Path $upstream 'adapter/outbound/onetunnel_tailscale.go')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'native/overlay/onetunnel_tailscale_test.go') -Destination (Join-Path $upstream 'adapter/outbound/onetunnel_tailscale_test.go')
-Copy-Item -LiteralPath (Join-Path $projectRoot 'native/overlay/onetunnel_tailscale_forward.go') -Destination (Join-Path $upstream 'adapter/outbound/onetunnel_tailscale_forward.go')
-Copy-Item -LiteralPath (Join-Path $projectRoot 'native/overlay/onetunnel_tailscale_forward_test.go') -Destination (Join-Path $upstream 'adapter/outbound/onetunnel_tailscale_forward_test.go')
-foreach ($patchName in @('android-vpnservice.patch', 'tailscale-inbound.patch')) {
+foreach ($obsolete in @('onetunnel_tailscale_forward.go', 'onetunnel_tailscale_forward_test.go')) {
+    $obsoletePath = Join-Path $upstream ('adapter/outbound/' + $obsolete)
+    if (Test-Path -LiteralPath $obsoletePath) { Remove-Item -LiteralPath $obsoletePath }
+}
+foreach ($overlay in @('onetunnel_forward.go', 'onetunnel_forward_test.go', 'onetunnel_wireguard.go', 'onetunnel_wireguard_test.go', 'onetunnel_inbound_parser_test.go')) {
+    Copy-Item -LiteralPath (Join-Path $projectRoot ('native/overlay/' + $overlay)) -Destination (Join-Path $upstream ('adapter/outbound/' + $overlay))
+}
+foreach ($patchName in @('android-vpnservice.patch', 'tailscale-inbound.patch', 'wireguard-inbound.patch')) {
 $patch = Join-Path $projectRoot ('native/overlay/' + $patchName)
 & git -C $upstream apply --unidiff-zero --reverse --check $patch 2>$null
 if ($LASTEXITCODE -ne 0) {

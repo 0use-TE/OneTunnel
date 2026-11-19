@@ -208,8 +208,8 @@ func errorString(stage string, err error) *C.char {
 	if errors.Is(err, errRuleDatabase) {
 		return C.CString("RULE_DATABASE_UNAVAILABLE")
 	}
-	if stage == "Tailscale inbound" {
-		return C.CString("TAILSCALE_INBOUND_FAILED")
+	if stage == "tunnel inbound" {
+		return C.CString("TUNNEL_INBOUND_FAILED")
 	}
 	if stage == "Android TUN attachment" {
 		message := strings.ToLower(err.Error())
@@ -297,15 +297,15 @@ func GoStartCore(homeText, configText *C.char, androidFD C.int) (result *C.char)
 		return errorString(stage, err)
 	}
 	tun = attached
-	stage = "Tailscale inbound"
-	if err := startTailscaleInbounds(); err != nil {
+	stage = "tunnel inbound"
+	if err := startTunnelInbounds(); err != nil {
 		stopLocked()
 		return errorString(stage, err)
 	}
 	return C.CString("")
 }
 
-func startTailscaleInbounds() error {
+func startTunnelInbounds() error {
 	for _, proxy := range tunnel.Proxies() {
 		if bridge, ok := proxy.Adapter().(interface{ OneTunnelStartInbound() error }); ok {
 			if err := bridge.OneTunnelStartInbound(); err != nil {
@@ -398,9 +398,9 @@ func GoReloadCore(configText *C.char) (result *C.char) {
 		_ = proxy.Close()
 	}
 	executor.ApplyConfig(cfg, true)
-	if err := startTailscaleInbounds(); err != nil {
+	if err := startTunnelInbounds(); err != nil {
 		stopLocked()
-		return errorString("Tailscale inbound", err)
+		return errorString("tunnel inbound", err)
 	}
 	return C.CString("")
 }

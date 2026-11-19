@@ -185,7 +185,7 @@ class TunnelService : VpnService() {
                         "TUN_PERMISSION_DENIED" -> "Android 拒绝隧道接口操作"
                         "TUN_INVALID_FD" -> "系统隧道句柄已失效，请重新连接"
                         "TUN_ATTACH_FAILED" -> "Android 隧道接入失败"
-                        "TAILSCALE_INBOUND_FAILED" -> "Tailscale 入站端口启动失败，请检查端口设置后重试"
+                        "TUNNEL_INBOUND_FAILED" -> "本机端口转发启动失败，请检查连接和端口设置后重试"
                         else -> "核心配置准备或启动失败，请检查配置"
                     }
                     is UnsatisfiedLinkError -> "ARM64 核心加载失败，请勿继续使用此构建"
@@ -193,7 +193,7 @@ class TunnelService : VpnService() {
                     else -> "核心或 TUN 启动失败：请核对密钥、规则、DNS 与系统权限。未保存详细日志以保护凭据。"
                 }
                 Log.e("OneTunnel", "startup_failed category=" + when (error) {
-                    is NativeFailure -> if (error.code in setOf("RULE_DATABASE_UNAVAILABLE", "ANDROID_PACKAGE_ACCESS", "TUN_PERMISSION_DENIED", "TUN_INVALID_FD", "TUN_ATTACH_FAILED", "TAILSCALE_INBOUND_FAILED")) error.code else "NATIVE_CONFIG"
+                    is NativeFailure -> if (error.code in setOf("RULE_DATABASE_UNAVAILABLE", "ANDROID_PACKAGE_ACCESS", "TUN_PERMISSION_DENIED", "TUN_INVALID_FD", "TUN_ATTACH_FAILED", "TUNNEL_INBOUND_FAILED")) error.code else "NATIVE_CONFIG"
                     is UnsatisfiedLinkError -> "LIBRARY_LOAD"
                     is IllegalArgumentException -> "PROFILE_VALIDATION"
                     else -> "SERVICE_OR_TUN"

@@ -24,4 +24,6 @@ github.com/metacubex/tailscale v0.0.0-20260821153257-ff0ecd818181
 
 Android VPN App 使用额外的 `onetunnel` build tag，以及 `native/overlay/android-vpnservice.patch`：只调整 TUN package manager 的两处构建条件，避免读取系统私有 packages.xml。该路径与 VpnService 注入 FD、由 Android 管理应用路由的模式一致；不启用会影响其他核心行为的全局 cmfa tag。构建脚本幂等应用此补丁。
 
-0.3.13 另加 `native/overlay/tailscale-inbound.patch`，为同一固定版本的 TailscaleOption 接入 `listen-ports`、启动和关闭钩子；实际 TCP 转发位于 `onetunnel_tailscale_forward.go`。脚本复制 overlay 及回归测试并幂等应用两个补丁。没有修改 tsnet 默认未注册端口拒绝逻辑；只有显式配置的 Server.Listen 端口转发到设备 127.0.0.1。
+0.3.13 另加 `native/overlay/tailscale-inbound.patch`，为同一固定版本的 TailscaleOption 接入 `listen-ports`、启动和关闭钩子。没有修改 tsnet 默认未注册端口拒绝逻辑；只有显式配置的 Server.Listen 端口转发到设备 127.0.0.1。
+
+0.3.14 增加 `wireguard-inbound.patch`，为 WireGuardOption 接入同一端口字段，设备初始化时通过现有用户态协议栈 ListenTCP 监听。共享转发器合并至 `native/overlay/onetunnel_forward.go`，WG 启动接口位于 `onetunnel_wireguard.go`。脚本复制共享 overlay/回归测试，清理旧版 TS 专用转发文件，并幂等应用三个补丁；保留默认 mipstack 和可选 gVisor，两者均由加密隧道回归测试覆盖。

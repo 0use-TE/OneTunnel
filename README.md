@@ -17,7 +17,7 @@ Compose 客户端，将安卓应用流量送入一个 VpnService/TUN，由原生
 - 设置页可开关 HTTP 代理并修改监听端口（默认 7890，范围 1024–65535），有效输入短暂防抖后自动加密保存。默认只监听 127.0.0.1；允许局域网连接后默认需要认证，可关闭“添加账号”改为免认证，均只接受私网/本地来源。沿用支持 HTTP/SOCKS5 的 mixed listener，随统一 VPN 启停；停止后修改，下次连接生效。旧版 LAN 配置自动兼容。
 - 运行中可添加 WG 文件 / 扫码 / 二维码图片、Tailscale 和 Clash 配置 / 订阅，确认保存后经现有 IPC 热重载，保留 Android TUN；已有连接会重连。文件选择器返回时等待服务通道恢复，重载期间阻止重复提交，重载失败停止连接并保留已保存配置。
 - Tailscale 在线设备列表默认折叠，点击标题展开，只显示在线设备。
-- Tailscale 编辑页可添加本机 TCP 端口转发（最多 16 条），例如入站 8022 → 本机 8022，供 Tailnet 设备访问 Termux SSH。默认不开放端口，目标固定为 127.0.0.1；随该连接和统一 VPN 启停，运行中修改自动保存并重载。认证会话不开放转发，原节点身份不因端口修改而改变。
+- WireGuard 和 Tailscale 编辑页均可添加本机 TCP 端口转发（每条连接最多 16 个端口），例如入站 8022 → 本机 8022，供隧道对端访问 Termux SSH。默认不开放端口，目标固定为 127.0.0.1；随该连接和统一 VPN 启停，运行中修改自动保存并重载。TS 认证会话不开放转发，端口修改保留现有身份与密钥。
 - 设置页“配置”仅保留导入 Clash 配置文件和高级配置；三出口示例、直连测试模板收在高级配置中。
 - SAF 导入 Mihomo YAML、最多 1 MiB；离线语法/结构检查；确认导入后自动加密保存。
 - Clash/Mihomo YAML 订阅：粘贴 HTTP/HTTPS 链接、下载预览、独立加密缓存、手动更新和切换；已用电脑中的 Ouse 与魔戒订阅实际下载验证。连接期间可更新缓存，停止后应用配置。
@@ -38,11 +38,13 @@ Compose 客户端，将安卓应用流量送入一个 VpnService/TUN，由原生
 - 代理组成员实时选择 UI、按 App/PROCESS 规则、定时订阅更新。
 - 系统级 always-on/lockdown、完整 kill switch、正式签名和应用商店发布。
 - ARM64 以外 ABI、ZeroTier/EasyTier 出站、全部已有 Clash 配置的无修改兼容。
-- WireGuard 入站到本机服务的端口转发；当前 WG 仍作为 Mihomo 出站使用，Tailscale 的本机 TCP 转发不会自动应用到 WG。
+- WireGuard/Tailscale 的 UDP 入站转发、完整 IP 入站及路由器功能；现有本机转发仅支持显式 TCP 端口。
 
 Tailscale 可使用浏览器登录，也可在高级配置中填写 auth-key；会创建新 tailnet 身份，不复用原 Tailscale App。核心的状态和 provider 缓存位于私有目录，不声称所有运行时文件都经过 Keystore 加密。
 
 访问 Termux：点击已添加的 Tailscale 连接 → 本机端口转发 → 添加端口，填写入站 `8022`、本机 `8022`，点完成。启用该 Tailscale 连接及总 VPN，在 Termux 启动 `sshd`；其他 Tailnet 设备执行 `ssh -p 8022 <Termux 的 whoami 用户名>@<OneTunnel 的 Tailscale IP>`。应使用 OneTunnel 状态显示的节点地址，并确保 Tailnet ACL 允许对应 TCP 端口。这里只转发显式配置的 TCP 端口，不提供完整官方 App 的 IP 入站行为或内置 Tailscale SSH。
+
+WireGuard 用法相同，在 WG 编辑页添加端口并启用连接后，远端 SSH 使用该 WG 的“本机地址”，而不是 Tailscale IP。对端需能通过 WG 路由到该地址，Peer 的 AllowedIPs 需允许实际来源；经中心服务器访问时还需中心服务器转发/防火墙配置。移动设备在 NAT 后需要保持端点可达，可在既有 Keepalive 输入中设置 25 秒。软件不自动修改这些网络参数，`.conf` 的 ListenPort 仍不作为 Android UDP 监听端口导入。
 
 构建验证见 `docs/BUILD_RESULT.md`。原生库和上游副本由构建脚本生成，不纳入 Git；完整 APK 必须包含真实原生库。默认国内规则使用 GEOSITE/GEOIP，首次启动可能下载所需数据库；离线检查不会下载。局域网代理只接受私网/本地来源并要求认证，不会开放 Mihomo 控制接口。
 

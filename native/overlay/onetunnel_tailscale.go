@@ -11,15 +11,6 @@ import (
 	"sort"
 )
 
-// Start configured inbound services with the VPN, even when no outbound flow or
-// UI status request has started this adapter. Constructors remain side-effect free.
-func (p *autoCloseProxyAdapter) OneTunnelStartInbound() error {
-	if bridge, ok := p.ProxyAdapter.(interface{ OneTunnelStartInbound() error }); ok {
-		return bridge.OneTunnelStartInbound()
-	}
-	return nil
-}
-
 func (t *Tailscale) OneTunnelStartInbound() error {
 	if len(t.option.ListenPorts) == 0 {
 		return nil

@@ -1,5 +1,3 @@
-//go:build with_gvisor && !no_tailscale
-
 // SPDX-License-Identifier: GPL-3.0-or-later
 package outbound
 
@@ -13,8 +11,8 @@ import (
 	"time"
 )
 
-// OneTunnelListenPort only exposes an explicitly selected TCP port on the tsnet
-// node. The target is always IPv4 loopback; no LAN listener or arbitrary host.
+// OneTunnelListenPort exposes an explicitly selected TCP port inside a tunnel.
+// The target is always IPv4 loopback; no LAN listener or arbitrary host.
 type OneTunnelListenPort struct {
 	Port      int `proxy:"port"`
 	LocalPort int `proxy:"local-port,omitempty"`
@@ -32,7 +30,7 @@ type oneTunnelForwarder struct {
 
 func newOneTunnelForwarder(ports []OneTunnelListenPort) (*oneTunnelForwarder, error) {
 	if len(ports) > 16 {
-		return nil, errors.New("at most 16 Tailscale inbound ports are supported")
+		return nil, errors.New("at most 16 inbound ports are supported")
 	}
 	g := &oneTunnelForwarder{active: make(map[net.Conn]net.Conn)}
 	seen := make(map[int]bool)
@@ -41,7 +39,7 @@ func newOneTunnelForwarder(ports []OneTunnelListenPort) (*oneTunnelForwarder, er
 			port.LocalPort = port.Port
 		}
 		if port.Port < 1 || port.Port > 65535 || port.LocalPort < 1 || port.LocalPort > 65535 || seen[port.Port] {
-			return nil, errors.New("invalid or duplicate Tailscale inbound port")
+			return nil, errors.New("invalid or duplicate inbound port")
 		}
 		seen[port.Port] = true
 		g.ports = append(g.ports, port)
@@ -49,7 +47,7 @@ func newOneTunnelForwarder(ports []OneTunnelListenPort) (*oneTunnelForwarder, er
 	return g, nil
 }
 
-// start receives tsnet.Server.Listen, never net.Listen. Bind every configured
+// start receives a tunnel's virtual listener, never net.Listen. Bind every configured
 // listener before accepting, so a bind failure does not partially apply a list.
 func (g *oneTunnelForwarder) start(parent context.Context, listen func(string, string) (net.Listener, error)) error {
 	if g == nil || len(g.ports) == 0 {
@@ -58,7 +56,7 @@ func (g *oneTunnelForwarder) start(parent context.Context, listen func(string, s
 	g.mu.Lock()
 	if g.closed || g.started || parent.Err() != nil {
 		g.mu.Unlock()
-		return errors.New("Tailscale inbound forwarder unavailable")
+		return errors.New("inbound forwarder unavailable")
 	}
 	g.started = true
 	ctx, cancel := context.WithCancel(parent)
@@ -68,14 +66,14 @@ func (g *oneTunnelForwarder) start(parent context.Context, listen func(string, s
 		listener, err := listen("tcp", ":"+strconv.Itoa(port.Port))
 		if err != nil {
 			g.close()
-			return errors.New("Tailscale inbound listener failed")
+			return errors.New("inbound listener failed")
 		}
 		g.mu.Lock()
 		if g.closed || ctx.Err() != nil {
 			g.mu.Unlock()
 			_ = listener.Close()
 			g.close()
-			return errors.New("Tailscale inbound forwarder stopped")
+			return errors.New("inbound forwarder stopped")
 		}
 		g.listeners = append(g.listeners, listener)
 		g.mu.Unlock()

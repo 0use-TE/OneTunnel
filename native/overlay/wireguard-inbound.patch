@@ -1,0 +1,24 @@
+diff --git a/adapter/outbound/wireguard.go b/adapter/outbound/wireguard.go
+index 54a671e..e4d7ad2 100644
+--- a/adapter/outbound/wireguard.go
++++ b/adapter/outbound/wireguard.go
+@@ -50,0 +51 @@ type WireGuard struct {
++	oneTunnelForwarder *oneTunnelForwarder
+@@ -72,0 +74 @@ type WireGuardOption struct {
++	ListenPorts []OneTunnelListenPort `proxy:"listen-ports,omitempty"`
+@@ -354,0 +357,4 @@ func NewWireGuard(option WireGuardOption) (*WireGuard, error) {
++	forwarder, err := newOneTunnelForwarder(option.ListenPorts)
++	if err != nil {
++		return nil, err
++	}
+@@ -355,0 +362 @@ func NewWireGuard(option WireGuardOption) (*WireGuard, error) {
++		oneTunnelForwarder: forwarder,
+@@ -393 +399,0 @@ func NewWireGuard(option WireGuardOption) (*WireGuard, error) {
+-	var err error
+@@ -597,0 +604,4 @@ func (w *WireGuard) init0(ctx context.Context) (err error) {
++	if err = w.oneTunnelListen(stack); err != nil {
++		w.initErr = err
++		return err
++	}
+@@ -807,0 +818 @@ func (w *WireGuard) Close() error {
++	w.oneTunnelForwarder.close()
