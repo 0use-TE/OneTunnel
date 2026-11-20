@@ -53,9 +53,7 @@ figure { margin: 0; }
 figcaption { text-align: center; color: var(--muted); margin: 24px 0; min-height: 31px; }
 .screenshot-link { display: flex; justify-content: center; padding: 30px; border-radius: 18px; background: var(--canvas); }
 .screenshot-link img { display: block; max-width: 100%; width: auto; height: auto; max-height: 900px; border: 1px solid var(--line); border-radius: 10px; }
-.capture-label { text-align: center; margin: 18px 0 0; color: var(--muted); }
-.extras { text-align: center; padding: 48px 0; margin: 0; color: var(--muted); }
-.footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 24px 0; border-top: 1px solid var(--line); color: var(--muted); }
+.footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 40px; padding: 24px 0; border-top: 1px solid var(--line); color: var(--muted); }
 .footer > div { display: flex; flex-wrap: wrap; gap: 24px; }
 .footer a:hover { color: var(--blue); }
 @media (max-width: 720px) {
@@ -72,7 +70,6 @@ figcaption { text-align: center; color: var(--muted); margin: 24px 0; min-height
   figcaption { margin: 20px auto; max-width: 320px; min-height: 62px; }
   .screenshot-link { padding: 12px; border-radius: 12px; }
   .screenshot-link img { max-height: none; }
-  .extras { max-width: 300px; margin-inline: auto; padding: 36px 0; }
   .footer { flex-wrap: wrap; gap: 12px; }
 }
 @media (max-width: 360px) {
