@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build the public Pages folder using only the Python standard library."""
 import argparse
+from hashlib import sha256
 from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -62,6 +63,9 @@ def main():
     output = ROOT / "_site"
     (output / "assets").mkdir(parents=True, exist_ok=True)
     source = (ROOT / "website/index.html").read_text(encoding="utf-8")
+    for name in ("styles.css", "app.js"):
+        digest = sha256((ROOT / "website" / name).read_bytes()).hexdigest()[:12]
+        source = source.replace(f'{name}"', f'{name}?v={digest}"')
     gradle = (ROOT / "client/app/build.gradle.kts").read_text(encoding="utf-8")
     sdk = re.search(r"minSdk\s*=\s*(\d+)", gradle)
     if not sdk or sdk.group(1) != "26":
@@ -72,6 +76,12 @@ def main():
     (output / "index.html").write_text(page, encoding="utf-8")
     for name in ("styles.css", "app.js"):
         shutil.copyfile(ROOT / "website" / name, output / name)
+    screenshots = output / "assets/screenshots"
+    screenshots.mkdir(parents=True, exist_ok=True)
+    for screen in ("connections", "proxies", "rules", "forwarding"):
+        for theme in ("light", "dark"):
+            name = f"{screen}-{theme}.webp"
+            shutil.copyfile(ROOT / "website/assets/screenshots" / name, screenshots / name)
     # Reuse the current Android logo paths, with the brand blue instead of system tint.
     vector = ET.parse(ROOT / "client/app/src/main/res/drawable/ic_status.xml").getroot()
     group = vector.find("group")
