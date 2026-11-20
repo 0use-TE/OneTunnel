@@ -2,6 +2,8 @@
 
 Compose 客户端，将安卓应用流量送入一个 VpnService/TUN，由原生 Mihomo 按规则选择普通代理、WireGuard、Tailscale 或明确配置的直连出口。
 
+[官网](https://0use.net/OneTunnel/) · [网站构建与发布](docs/WEBSITE.md)
+
 **这是供用户手动测试的 alpha。VPN 由用户主动连接；异常退出后不自动恢复。**
 
 ## 已实现

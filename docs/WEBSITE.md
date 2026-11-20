@@ -1,5 +1,7 @@
 # OneTunnel 官网
 
+公开网址：[OneTunnel](https://0use.net/OneTunnel/)。
+
 网站源码位于 `website/`，GitHub Actions 配置位于 `.github/workflows/pages.yml`。
 单页静态网站，没有第三方字体、追踪或运行时依赖。正文和界面文字均至少 18px，提供系统明暗主题和手动切换。
 
@@ -26,3 +28,9 @@ python -m http.server 8000 --bind 127.0.0.1 --directory _site
 Action 版本已与 GitHub 官方仓库发布记录核对。
 
 页面的 GitHub 按钮指向公开源码仓库，未伪装成安装包下载；后续发布 Release 时可增加下载入口。
+
+## 发布验证
+
+2026-11-19 首次自动部署成功：[Actions 记录](https://github.com/0use-TE/OneTunnel/actions/runs/44663711437)。
+公开首页、样式、脚本及 Logo 均返回 HTTP 200。沿用账户已有的 0use.net 域名，没有改动 DNS 或其他项目。
+本地 Chromium 检查了 1440 / 768 / 390 / 320 像素宽度、系统明暗主题、手动切换与持久化、键盘焦点；无横向溢出、加载错误或脚本异常，文字最小 18px。
