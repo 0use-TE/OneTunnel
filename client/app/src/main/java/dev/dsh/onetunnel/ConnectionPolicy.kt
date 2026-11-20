@@ -45,7 +45,9 @@ object ConnectionPolicy {
             groups.forEach { (it as? Map<*, *>)?.get("name")?.let { name -> blocked.add(name.toString()) } }
             root.remove("proxy-providers")
         }
-        root["proxies"] = nodes.filterNot { (it as? Map<*, *>)?.get("name") in blocked }
+        root["proxies"] = nodes.filterNot { (it as? Map<*, *>)?.get("name") in blocked }.map { node ->
+            if (node is Map<*, *>) TunnelPortForwards.runtime(node) else node
+        }
         root["proxy-groups"] = groups.filterNot { (it as? Map<*, *>)?.get("name") in blocked } +
             blocked.map { mapOf("name" to it, "type" to "select", "proxies" to listOf("REJECT")) }
         val dns = (root["dns"] as Map<*, *>).entries.associateTo(linkedMapOf<String, Any?>()) { it.key.toString() to it.value }

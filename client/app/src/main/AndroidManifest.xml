@@ -9,15 +9,25 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <application android:label="OneTunnel" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:allowBackup="false" android:usesCleartextTraffic="true" android:supportsRtl="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".WgScanActivity" android:exported="false" />
+        <activity android:name=".QuickConnectActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@style/QuickConnectTheme" />
         <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <service android:name=".TunnelService" android:permission="android.permission.BIND_VPN_SERVICE" android:exported="true" android:process=":vpn" android:foregroundServiceType="specialUse">
+        <receiver android:name=".TunnelWidget" android:exported="false" android:label="OneTunnel">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_tunnel_info" />
+        </receiver>
+        <service android:name=".TunnelTileService" android:exported="true" android:label="OneTunnel" android:icon="@drawable/ic_status" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="true" />
+        </service>
+        <service android:name=".TunnelService" android:permission="android.permission.BIND_VPN_SERVICE" android:exported="true" android:process=":vpn" android:stopWithTask="false" android:foregroundServiceType="specialUse">
             <intent-filter><action android:name="android.net.VpnService" /></intent-filter>
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-initiated VPN packet routing through Mihomo" />
+            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="true" />
         </service>
     </application>
 </manifest>

@@ -3,8 +3,12 @@ package dev.dsh.onetunnel
 
 import android.Manifest
 import android.app.Activity
+import android.app.StatusBarManager
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.drawable.Icon
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.VpnService
@@ -27,6 +31,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
@@ -76,7 +81,7 @@ class MainActivity : ComponentActivity() {
         else requestVpn()
     }
     private fun stopTunnel() {
-        runCatching { startService(Intent(this, TunnelService::class.java).setAction(TunnelService.STOP)) }
+        runCatching { TunnelActions.stop(this) }
             .onFailure { StatusStore(this).write("error", "停止请求失败，请在系统 VPN 设置中断开") }
     }
     private fun lanAddresses(): List<String> = runCatching {
@@ -120,6 +125,7 @@ class MainActivity : ComponentActivity() {
         var text by remember { mutableStateOf("") } // Never save plaintext credentials to instance state.
         var saved by remember { mutableStateOf("") }
         var status by remember { mutableStateOf(TunnelStatus()) }
+        var recoveryEnabled by remember { mutableStateOf(false) }
         var busy by remember { mutableStateOf(true) }
         var message by remember { mutableStateOf("") }
         var confirmStart by remember { mutableStateOf(false) }
@@ -247,6 +253,7 @@ class MainActivity : ComponentActivity() {
             while (status.active && (foreground.value || core.updating)) {
                 core.bind()
                 if (core.connected && pendingTailLogin == null) {
+                    core.request("", "lifecycle")
                     val names = if (status.state in listOf("auth", "auth-starting")) listOfNotNull(authTarget)
                         else ConnectionPolicy.entries(saved).filter { it.type == "tailscale" && it.enabled }.map { it.name }
                     names.forEach { core.request(it, "status") }
@@ -271,13 +278,17 @@ class MainActivity : ComponentActivity() {
             }
         }
         LaunchedEffect(foreground.value) {
+            if (foreground.value) {
+                recoveryEnabled = withContext(Dispatchers.IO) { runCatching { RecoveryStore(this@MainActivity).read().enabled }.getOrDefault(false) }
+                TunnelSurfaces.refresh(this@MainActivity)
+            }
             while (foreground.value) {
                 status = withContext(Dispatchers.IO) { StatusStore(this@MainActivity).read() }
                 delay(1000)
             }
         }
         DisposableEffect(advanced, tab, wgPreview != null, subscriptionDialog, clashPreview != null, addTailscale, editingConnection, editingSubscription, clashPage) {
-            if (advanced || clashPage || tab == 2 || wgPreview != null || subscriptionDialog || clashPreview != null || addTailscale || editingConnection != null || editingSubscription != null) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            if (advanced || clashPage || tab == 3 || wgPreview != null || subscriptionDialog || clashPreview != null || addTailscale || editingConnection != null || editingSubscription != null) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
             onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
         }
@@ -343,15 +354,15 @@ class MainActivity : ComponentActivity() {
         MaterialTheme(colorScheme = colors) {
             Scaffold(containerColor = colors.background,
                 topBar = { TopAppBar(
-                    title = { Text(if (clashPage) "Clash 代理" else if (advanced) "高级配置" else listOf("OneTunnel", "分流规则", "设置")[tab], fontWeight = FontWeight.Bold) },
+                    title = { Text(if (clashPage) "Clash 代理" else if (advanced) "高级配置" else listOf("OneTunnel", "分流规则", "端口转发", "设置")[tab], fontWeight = FontWeight.Bold) },
                     navigationIcon = { if (advanced || clashPage) IconButton(onClick = { if (clashPage) clashPage = false else advanced = false }) { Icon(Icons.Default.ArrowBack, "返回") } },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background)
                 ) },
                 bottomBar = { Column {
                     if (!advanced && !clashPage) NavigationBar(containerColor = colors.surface, tonalElevation = 0.dp) {
-                    listOf("连接", "规则", "设置").forEachIndexed { index, label ->
+                    listOf("连接", "规则", "转发", "设置").forEachIndexed { index, label ->
                         NavigationBarItem(selected = tab == index, onClick = { tab = index },
-                            icon = { Icon(listOf(Icons.Default.Home, Icons.Default.List, Icons.Default.Settings)[index], label) },
+                            icon = { Icon(listOf(Icons.Default.Home, Icons.Default.List, Icons.AutoMirrored.Filled.ArrowForward, Icons.Default.Settings)[index], label) },
                             label = { Text(label) })
                     }
                 } } }
@@ -374,6 +385,10 @@ class MainActivity : ComponentActivity() {
                             update = source?.let { subscription -> { fetchSubscription(subscription.name, subscription.url) } },
                             modifier = Modifier.weight(1f))
                     }
+                } else if (!advanced && tab == 2) {
+                    PortForwardPage(text, canToggle, message.ifBlank { core.error },
+                        addConnection = { tab = 0; addConnection = true }, save = { applyChange(it) },
+                        modifier = Modifier.widthIn(max = 720.dp).fillMaxSize())
                 } else Column(Modifier.widthIn(max = 720.dp).fillMaxWidth().verticalScroll(rememberScrollState())
                     .padding(horizontal = 24.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -404,10 +419,11 @@ class MainActivity : ComponentActivity() {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Text(stateLabel, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                                     Switch(checked = status.active, onCheckedChange = { if (it) confirmStart = true else stopTunnel() },
-                                        enabled = !busy && status.state !in listOf("starting", "stopping") &&
+                                        enabled = (!status.alwaysOn || !status.active) && !busy && status.state !in listOf("starting", "stopping") &&
                                             (status.active || (saved.isNotBlank() && !dirty && summary != null)))
                                 }
                                 SettingRow("其他流量使用", matchOptions[view?.match] ?: if (view == null) "待配置" else "自定义")
+                                if (status.alwaysOn) TextButton(onClick = { TunnelActions.vpnSettings(this@MainActivity) }) { Text("系统 VPN 设置") }
                             }
                             if (status.state == "error") Note(status.message, error = true)
                             Button(onClick = { addConnection = true }, enabled = canToggle, modifier = Modifier.fillMaxWidth()) { Text("添加连接") }
@@ -498,7 +514,7 @@ class MainActivity : ComponentActivity() {
                                 if (core.error.isNotBlank()) Note(core.error, error = true)
                             }
                         }
-                        2 -> {
+                        3 -> {
                             Panel {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                     Image(painterResource(R.drawable.onetunnel_logo), contentDescription = "OneTunnel 图标",
@@ -510,9 +526,44 @@ class MainActivity : ComponentActivity() {
                             Panel {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf("system" to "跟随系统", "light" to "浅色", "dark" to "深色").forEach { (key, label) ->
-                                        FilterChip(selected = theme == key, onClick = { theme = key; prefs.edit().putString("theme", key).apply() }, label = { Text(label) })
+                                        FilterChip(selected = theme == key, onClick = {
+                                            theme = key; prefs.edit().putString("theme", key).apply(); TunnelSurfaces.refresh(this@MainActivity)
+                                        }, label = { Text(label) })
                                     }
                                 }
+                            }
+                            SectionLabel("后台运行")
+                            Panel {
+                                ToggleRow("异常自动恢复", recoveryEnabled, true) { enabled ->
+                                    runCatching {
+                                        RecoveryStore(this@MainActivity).configure(enabled, status.state == "running")
+                                        recoveryEnabled = enabled
+                                        if (status.active) startService(Intent(this@MainActivity, TunnelService::class.java).setAction(TunnelService.RECOVERY_CHANGED))
+                                    }.onFailure { message = "后台设置应用失败，请重试。" }
+                                }
+                                TextButton(onClick = { runCatching { TunnelActions.vpnSettings(this@MainActivity) }
+                                    .onFailure { message = "无法打开系统 VPN 设置。" } }) { Text("始终开启 VPN") }
+                                TextButton(onClick = { runCatching {
+                                    startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                                }.onFailure { message = "无法打开系统后台设置。" } }) { Text("系统后台设置") }
+                            }
+                            SectionLabel("快捷入口")
+                            Panel {
+                                TextButton(onClick = {
+                                    val widgets = AppWidgetManager.getInstance(this@MainActivity)
+                                    if (widgets.isRequestPinAppWidgetSupported) runCatching {
+                                        widgets.requestPinAppWidget(ComponentName(this@MainActivity, TunnelWidget::class.java), null, null)
+                                    }.onFailure { message = "请长按桌面添加 OneTunnel 小组件。" }
+                                    else message = "请长按桌面添加 OneTunnel 小组件。"
+                                }) { Text("添加桌面组件") }
+                                TextButton(onClick = {
+                                    if (Build.VERSION.SDK_INT >= 33) runCatching {
+                                        getSystemService(StatusBarManager::class.java).requestAddTileService(
+                                            ComponentName(this@MainActivity, TunnelTileService::class.java), "OneTunnel",
+                                            Icon.createWithResource(this@MainActivity, R.drawable.ic_status), mainExecutor) { }
+                                    }.onFailure { message = "请在下拉快捷设置中编辑并添加 OneTunnel。" }
+                                    else message = "请在下拉快捷设置中编辑并添加 OneTunnel。"
+                                }) { Text("添加快捷开关") }
                             }
                             SectionLabel("HTTP 代理")
                             if (view == null) Note("导入配置后可设置代理。")
@@ -541,7 +592,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    if (status.active && (tab == 2 || advanced)) Note("监听与高级配置需先停止连接。")
+                    if (status.active && (tab == 3 || advanced)) Note("监听与高级配置需先停止连接。")
                     if (message.isNotBlank()) Note(message)
                     Spacer(Modifier.height(16.dp))
                 }
@@ -586,10 +637,11 @@ class MainActivity : ComponentActivity() {
                     }.onFailure { busy = false; message = if (it is IllegalArgumentException) it.message ?: "配置无效。" else "订阅修改失败。" }
                 }
             } }
-            if (editingClashFile) AlertDialog(onDismissRequest = { editingClashFile = false }, title = { Text("Clash 配置") }, text = {
+            if (editingClashFile) AlertDialog(onDismissRequest = { editingClashFile = false }, title = {
+                ConnectionEditorTitle("Clash 配置", { pendingDeletion = "Clash 配置" to ""; editingClashFile = false }, canToggle)
+            }, text = {
                 Column {
                     TextButton(onClick = { editingClashFile = false; advanced = true }) { Text("编辑配置") }
-                    DeleteConnectionButton({ pendingDeletion = "Clash 配置" to ""; editingClashFile = false })
                 }
             }, confirmButton = { TextButton(onClick = { editingClashFile = false }) { Text("关闭") } })
             pendingDeletion?.let { target ->

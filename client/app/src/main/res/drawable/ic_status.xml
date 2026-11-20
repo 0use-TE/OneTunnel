@@ -1,2 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24"><path android:fillColor="#FFFFFFFF" android:pathData="M3,5h18v4H3zM3,15h18v4H3zM10,8h4v8h-4z" /></vector>
+<!-- Monochrome outline of the approved OneTunnel cat, with transparent eyes and smile. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="1000" android:viewportHeight="1000">
+    <group android:translateX="-127" android:translateY="-128">
+        <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+            android:pathData="M486,310 C570,295 684,295 768,310 C818,260 899,186 932,186 C977,186 1002,400 1010,438 C1041,475 1050,509 1046,590 C1043,704 1006,770 896,800 C945,874 982,947 982,995 C982,1043 956,1070 910,1070 L342,1070 C294,1070 270,1043 270,995 C270,947 307,874 356,800 C246,770 207,704 203,590 C199,509 209,475 245,438 C253,400 276,186 320,186 C353,186 436,260 486,310 Z M508,550 A43,43 0,1 0,422,550 A43,43 0,1 0,508,550 Z M832,550 A43,43 0,1 0,746,550 A43,43 0,1 0,832,550 Z M571,619 C576,614 584,615 589,621 C609,643 644,643 665,621 C670,615 678,614 683,619 C689,623 689,631 684,637 C655,670 600,670 571,637 C565,631 565,624 571,619 Z" />
+    </group>
+</vector>

@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
     var url by remember { mutableStateOf(initial?.url.orEmpty()) }
     var reveal by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
-    AlertDialog(onDismissRequest = { if (!busy) dismiss() }, title = { Text(if (initial == null) "添加订阅" else "编辑订阅") }, text = {
+    AlertDialog(onDismissRequest = { if (!busy) dismiss() }, title = { ConnectionEditorTitle(if (initial == null) "添加订阅" else "编辑订阅", remove, !busy) }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(name, { name = it }, enabled = !busy, label = { Text("订阅名称") }, singleLine = true)
             OutlinedTextField(url, { url = it }, enabled = !busy, label = { Text("订阅链接") }, singleLine = true,
@@ -27,7 +27,6 @@ import androidx.compose.ui.unit.dp
                 trailingIcon = { TextButton(onClick = { reveal = !reveal }) { Text(if (reveal) "隐藏" else "显示") } })
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (error.isNotBlank() || message.isNotBlank()) Note(error.ifBlank { message }, error = true)
-            if (remove != null) DeleteConnectionButton(remove, !busy)
         }
     }, confirmButton = { TextButton(onClick = {
         runCatching {

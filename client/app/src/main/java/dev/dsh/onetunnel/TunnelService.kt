@@ -35,9 +35,26 @@ class TunnelService : VpnService() {
     private val finished = AtomicBoolean(false)
     @Volatile private var tun: ParcelFileDescriptor? = null
     private val status by lazy { StatusStore(this) }
+    private val recovery by lazy { RecoveryStore(this) }
+    private var managedAlwaysOn = false
     @Volatile private var nativeReady = false
     private var authOnly = false
     private var authNode = ""
+    private val markStable = Runnable { if (nativeReady && !authOnly && !terminating.get()) runCatching { recovery.stable() } }
+    private fun writeStatus(state: String, message: String) { status.write(state, message, managedAlwaysOn) }
+    private fun syncAlwaysOn(systemStart: Boolean = false) {
+        val actual = if (Build.VERSION.SDK_INT >= 29) isAlwaysOn else managedAlwaysOn || systemStart
+        if (actual == managedAlwaysOn) return
+        managedAlwaysOn = actual
+        if (launched.get() && !terminating.get()) {
+            val current = status.read()
+            writeStatus(current.state, current.message)
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(TunnelSurfaces.label(current)))
+        }
+    }
+    private fun restartMode(): Int = if (!terminating.get() && runCatching {
+        RecoveryPolicy.sticky(recovery.read(), managedAlwaysOn, authOnly)
+    }.getOrDefault(false)) START_STICKY else START_NOT_STICKY
     private val authPolling = AtomicBoolean(false)
     private class NativeFailure(val code: String) : Exception()
     private val startupTimeout = Runnable {
@@ -52,6 +69,13 @@ class TunnelService : VpnService() {
         val name = message.data.getString("name").orEmpty()
         val action = message.data.getString("action").orEmpty()
         val requestId = message.arg1
+        if (action == "lifecycle") {
+            syncAlwaysOn()
+            runCatching { reply.send(Message.obtain(null, CONTROL_RESPONSE).apply {
+                arg1 = requestId; data = Bundle().apply { putString("result", "{\"lifecycle\":true}") }
+            }) }
+            return@Handler true
+        }
         if (action in listOf("clash-state", "clash-select", "clash-delay", "clash-cancel")) {
             val target = message.data.getString("target").orEmpty()
             val generation = message.data.getString("generation").orEmpty()
@@ -143,26 +167,51 @@ class TunnelService : VpnService() {
         )
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        syncAlwaysOn(intent?.action == SERVICE_INTERFACE)
+        if (terminating.get()) return START_NOT_STICKY
+        if (intent?.action == RECOVERY_CHANGED) {
+            // Return a new restart policy without touching the current TUN or core.
+            if (!launched.get()) { stopSelfResult(startId); return START_NOT_STICKY }
+            return restartMode()
+        }
         if (intent?.action == STOP) {
+            if (managedAlwaysOn && launched.get()) return restartMode()
             terminate("idle", "已停止；原 Clash 不会由本程序自动启动")
             return START_NOT_STICKY
         }
-        if (intent?.action !in listOf(START, AUTH)) { stopSelf(); return START_NOT_STICKY }
-        if (!launched.compareAndSet(false, true)) return START_NOT_STICKY
+        val origin = when (intent?.action) {
+            START -> StartOrigin.USER
+            AUTH -> StartOrigin.AUTH
+            SERVICE_INTERFACE -> StartOrigin.SYSTEM
+            null -> StartOrigin.RESTORE
+            else -> { if (!launched.get()) stopSelfResult(startId); return restartMode() }
+        }
+        if (launched.get()) return restartMode()
+        val decision = runCatching {
+            recovery.begin(origin, managedAlwaysOn, origin == StartOrigin.AUTH || prepare(this) == null)
+        }.getOrDefault(RecoveryDecision(false, RecoveryState()))
+        if (!decision.allowed) {
+            finished.set(true)
+            writeStatus(if (decision.state.blocked) "error" else "idle",
+                if (decision.state.blocked) "自动恢复已暂停，请打开 OneTunnel 手动连接" else "VPN 未启动，请手动连接或检查系统授权")
+            stopSelfResult(startId); worker.shutdownNow(); proxyTests.shutdownNow()
+            return START_NOT_STICKY
+        }
+        if (!launched.compareAndSet(false, true)) return restartMode()
         authOnly = intent?.action == AUTH
         authNode = intent?.getStringExtra("name").orEmpty()
         try {
             val notification = notification("正在连接")
             if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
             else startForeground(NOTIFICATION, notification)
-            status.write(if (authOnly) "auth-starting" else "preparing", if (authOnly) "正在准备 Tailscale 登录" else "正在准备规则数据库")
+            writeStatus(if (authOnly) "auth-starting" else "preparing", if (authOnly) "正在准备 Tailscale 登录" else "正在准备规则数据库")
             Log.i("OneTunnel", if (authOnly) "stage=auth_prepare" else "stage=profile_prepare")
             main.postDelayed(startupTimeout, 120_000)
         } catch (_: Exception) {
             terminate("error", "无法启动前台 VPN 服务，请检查系统权限与后台限制")
             return START_NOT_STICKY
         }
-        worker.execute {
+        main.postDelayed({ if (!terminating.get()) worker.execute {
             try {
                 val profile = ConfigStore(this).load()
                 ProfileCheck.check(profile)
@@ -173,7 +222,7 @@ class TunnelService : VpnService() {
                     if (error.isNotEmpty()) throw IllegalStateException(error)
                     nativeReady = true
                     main.removeCallbacks(startupTimeout)
-                    status.write("auth", "Tailscale 登录中，继续使用当前网络；未接管 VPN")
+                    writeStatus("auth", "Tailscale 登录中，继续使用当前网络；未接管 VPN")
                     getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification("Tailscale 登录中 · 未接管 VPN"))
                     main.post(pollAuth)
                     main.postDelayed({ if (!terminating.get()) terminate("idle", "Tailscale 登录会话已超时，请重试") }, 10 * 60 * 1000L)
@@ -185,7 +234,7 @@ class TunnelService : VpnService() {
                 val preparation = NativeCore.prepare(home.absolutePath, runtimeProfile)
                 if (preparation.isNotEmpty()) throw NativeFailure(preparation)
                 if (terminating.get()) return@execute
-                status.write("starting", "正在连接")
+                writeStatus("starting", "正在连接")
                 Log.i("OneTunnel", "stage=tun_establish")
                 main.removeCallbacks(startupTimeout)
                 main.postDelayed(startupTimeout, 60_000)
@@ -214,8 +263,9 @@ class TunnelService : VpnService() {
                 main.removeCallbacks(startupTimeout)
                 if (!terminating.get()) {
                     Log.i("OneTunnel", "stage=running")
-                    status.write("running", "TUN 与核心已启动；不是连通性证明，请按清单手动测试")
+                    writeStatus("running", "已连接")
                     getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification("已启动"))
+                    main.postDelayed(markStable, 60_000)
                 }
             } catch (error: Throwable) {
                 // Native errors are deliberately generic; never persist a raw imported profile or Java stack trace.
@@ -241,25 +291,30 @@ class TunnelService : VpnService() {
                 })
                 terminate("error", message)
             }
-        }
-        return START_NOT_STICKY
+        } }, decision.delay)
+        return restartMode()
     }
 
     @Keep fun protectSocket(fd: Int): Boolean = !terminating.get() && protect(fd)
 
     private fun notification(text: String): Notification {
         val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val stop = PendingIntent.getService(this, 2, Intent(this, TunnelService::class.java).setAction(STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val stop = if (managedAlwaysOn) PendingIntent.getActivity(this, 2, Intent(android.provider.Settings.ACTION_VPN_SETTINGS),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            else PendingIntent.getActivity(this, 2, Intent(this, QuickConnectActivity::class.java).setAction(QuickConnectActivity.DISCONNECT),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_status)
             .setContentTitle("OneTunnel").setContentText(text).setContentIntent(open)
-            .setOngoing(true).addAction(Notification.Action.Builder(null, "停止", stop).build()).build()
+            .setOngoing(true).addAction(Notification.Action.Builder(null, if (managedAlwaysOn) "VPN 设置" else "停止", stop).build()).build()
     }
     private fun terminate(finalState: String, message: String) {
         if (!terminating.compareAndSet(false, true)) return
+        if (!authOnly) runCatching { recovery.stop(failed = finalState == "error") }
         nativeReady = false
         main.removeCallbacks(pollAuth)
         main.removeCallbacks(startupTimeout)
-        status.write("stopping", "正在停止并关闭所有出站")
+        main.removeCallbacks(markStable)
+        writeStatus("stopping", "正在停止并关闭所有出站")
         synchronized(this) { runCatching { tun?.close() }; tun = null }
         // A stuck provider or a long-running native start cannot keep the VPN alive indefinitely.
         main.postDelayed({ finishTermination(finalState, message) }, 2000)
@@ -270,7 +325,7 @@ class TunnelService : VpnService() {
     }
     private fun finishTermination(finalState: String, message: String) {
         if (!finished.compareAndSet(false, true)) return
-        status.write(finalState, message)
+        writeStatus(finalState, message)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         worker.shutdownNow()
@@ -279,7 +334,8 @@ class TunnelService : VpnService() {
         // and guarantees that a partially initialized Go runtime cannot keep sockets alive.
         Process.killProcess(Process.myPid())
     }
-    override fun onRevoke() { terminate("idle", "VPN 授权已撤回或被其他 VPN 替换，不会自动重连") }
+    override fun onRevoke() { managedAlwaysOn = false; terminate("idle", "VPN 授权已撤回或被其他 VPN 替换") }
+    override fun onTaskRemoved(rootIntent: Intent?) { TunnelSurfaces.refresh(this); super.onTaskRemoved(rootIntent) }
     override fun onDestroy() {
         if (!finished.get()) terminate("idle", "服务已结束，不会自动重连")
         super.onDestroy()
@@ -288,6 +344,7 @@ class TunnelService : VpnService() {
         const val START = "dev.dsh.onetunnel.START"
         const val STOP = "dev.dsh.onetunnel.STOP"
         const val AUTH = "dev.dsh.onetunnel.AUTH"
+        const val RECOVERY_CHANGED = "dev.dsh.onetunnel.RECOVERY_CHANGED"
         const val CONTROL = "dev.dsh.onetunnel.CONTROL"
         const val CONTROL_REQUEST = 100
         const val CONTROL_RESPONSE = 101

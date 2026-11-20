@@ -4,7 +4,7 @@
 
 在固定的 Mihomo Meta 提交 `0455d0d28c4526937380505153e65a843d8612e8` 中，**WireGuard 和 Tailscale 已是原生出站**。没有必要把三个现有 Android App 的 VPN 叠加，也没有必要额外使用 SOCKS 包装 Tailscale 来丢失 UDP 能力。
 
-第一版选择：**Compose 界面 + 单独的 `:vpn` 服务进程 + 一个 Android VpnService + 内嵌 ARM64 Mihomo c-shared 库**。核心完全在用户手动启动后工作。
+第一版选择：**Compose 界面 + 单独的 `:vpn` 服务进程 + 一个 Android VpnService + 内嵌 ARM64 Mihomo c-shared 库**。默认手动启动；0.3.18 增加显式开启的异常恢复与系统常驻 VPN 适配。
 
 本文是源码/编译层面的结论，**不等于已在这台平板上验证网络连通性**。用户明确要求不切换现有 Clash，所有功能实测由用户完成。
 
@@ -57,6 +57,18 @@ Mihomo rules
 2. 启动 `libonetunnel.so`；传入应用私有状态目录、内存中的 YAML、TUN fd 和 protect 回调对象。
 3. Go 调用固定版本核心的配置解析、ApplyConfig 和 sing_tun.New。
 4. 停止时先关闭入口，再清理核心；即使原生初始化卡住，独立 `:vpn` 进程也有退出兜底，不影响 Compose、Termux 或原 Clash 的进程。
+
+### 后台恢复与快捷入口（0.3.18）
+
+- Android 前台 VPN 服务明确 stopWithTask=false，UI 离开只解除自己的控制绑定。RecoveryPolicy 为纯状态机；RecoveryStore 在 no_backup/recovery.json 中只保存 enabled、requested、重试预算和阻断标记，使用 AtomicFile 与进程内锁 / FileChannel 锁串行化 UI 和 :vpn 的更新，不保存网络凭据。默认 enabled=false。
+- START 为显式连接，重置重试预算；null Intent 为系统 sticky 重建，仅当用户仍要求连接且启用了恢复时接受，并重新校验 VPN 授权。系统 SERVICE_INTERFACE 启动及已启用的 always-on 使用系统策略。仅认证不标为可恢复 VPN，STOP / revoke / 错误终止清除 requested，启动失败阻断后续自动启动至手动重试。自动重建五分钟窗口最多三次，按次延迟 2 / 4 / 6 秒；连续运行一分钟重置预算。系统强行停止不会被应用绕过。
+- 设置变更先保存恢复偏好，再发送 RECOVERY_CHANGED 让已启动服务返回新的 START_STICKY / START_NOT_STICKY；不关闭 TUN、不重载核心、不改变当前连接。开启恢复本身不建立 VPN；关闭恢复仅改变后续异常退出策略。没有自定义开机 Receiver、保活闹钟或后台循环启动器；开机连接交给系统 always-on。
+- 运行中的系统常驻模式禁止应用主动断开，首页、通知、组件和磁贴转到系统 VPN 设置；未运行 / 错误状态允许手动连接重试。服务每次启动以及前台同 UID lifecycle 查询同步 isAlwaysOn，状态文件附 alwaysOn 标记。lifecycle 回复不调用原生核心，并且不能阻挡 CoreControl 的配置重载请求。
+- TunnelWidget 使用系统 RemoteViews，无新增 UI 库。约 2×1 显示名称、状态、总开关；宽度足够时显示 Logo。跟随应用的明暗外观，状态文件写入 / 页面返回 / 外观变化时发送仅同 UID 的刷新广播，系统另约每 30 分钟更新；桌面不是秒级监控，突然结束进程后的缓存可能滞后。TileService 在系统请求显示时读取实时状态，无高频后台轮询。
+- QuickConnectActivity 为不导出的直接 PendingIntent Activity，负责配置检查、通知 / VPN 授权和启停；固定 CONNECT / DISCONNECT 动作使过期点击不会意外反转连接意愿。连接等待 Activity 恢复可见，权限请求状态跨旋转保存；没有通过广播跳转权限页。组件接收器不导出；磁贴由 BIND_QUICK_SETTINGS_TILE 保护，原 VPN 的 BIND_VPN_SERVICE 权限保持。
+- 此版本只覆盖宿主状态机、编译与静态检查；用户接手实机测试后停止设备操作。系统回收后的重建、厂商后台策略、常驻重启、组件布局及磁贴交互均需用户验收，不能以单元测试替代。
+
+0.3.19 将 ic_status 换成批准猫形 Logo 的单色矢量轮廓，透明眼睛与嘴形，复用于磁贴、组件按钮及通知；不改桌面 PNG。ShortcutPolicy 统一各入口的状态到动作映射，连接中允许 DISCONNECT 取消，断开中禁用，认证进入应用，常驻模式进入系统设置；旧系统磁贴与新系统共用相同 Intent 路由。QuickConnectActivity 使用 lifecycle.withStateAtLeast(RESUMED) 等待可见再连接或断开，避免回调发生在 onResume 生命周期尚未完成时丢失操作。
 
 0.3.3 起增加无 TUN 的配置准备阶段：在建立 Android VPN 前调用 JNI prepare，加载或下载数据库并校验核心配置，然后关闭临时出站对象。此阶段保持原网络/VPN，不启动监听；界面显示准备规则，最长 120 秒。准备成功才建立 TUN，核心/TUN 阶段另有 60 秒超时。日志只记录固定阶段与分类错误，不记录配置或原始内核错误；数据库失败单独提示。
 
@@ -124,6 +136,8 @@ HTTP 代理设置使用应用元数据 `http-enabled`、`lan-port` 和既有 LAN
 - 0.3.13 增加 `listen-ports: [{port: 8022, local-port: 8022}]`。固定源码补丁给 TailscaleOption 增加配置、构造时验证、启动时注册 tsnet TCP listener、关闭时清理。转发器在 0.3.14 合并至 `native/overlay/onetunnel_forward.go`；TS 监听只在当前 tsnet 节点地址上，目标固定 IPv4 loopback，每条连接最多 16 个监听与 64 个活动流。每条流双向复制并保留 TCP 半关闭，失败或停止时关闭套接字；本机服务失败不会回退其他主机或出站。
 - `OneTunnelStartInbound` 经过 autoCloseProxyAdapter 显式转发。统一 VPN 完成 TUN 接入，以及热重载替换旧出站后，主动启动配置了端口的 Tailscale，避免依赖 UI 轮询或首次出站请求。未配置端口的适配器保持惰性启动；普通配置预检查不启动 tsnet；无 TUN 认证会话在解析前移除端口字段。启动失败停止 VPN 并返回固定错误类别，不暴露原始配置。
 - 编辑、关闭、删除连接沿用原有保存和重载流程；旧监听和活动转发随旧适配器关闭。仅修改端口不改变 state-dir 或认证身份。端口不经过 Mihomo 的出站分流，仍受 Tailnet 的网络访问策略和本机服务认证控制；这里没有实现 Tailscale SSH、UDP 端口转发、完整 IP 转发、局域网发现或完整官方 App 的平台集成。
+- 0.3.16 将端口管理移至独立底部“转发”页，按 WG / TS 分组。`TunnelPortForwards.update` 只改选定节点的 listen-ports，保留所有其他字段与配置；按原入站端口定位编辑/删除，拒绝已消失的映射。新增输入为空，80 仅为 UI placeholder，空白不转为默认监听。统一沿用 ProfileCheck、ConfigStore 和核心重载；无需原生层或数据格式迁移。
+- 0.3.17 每条映射可单独切换。保存配置的 listen-ports 条目以 `enabled: false` 记录关闭状态，缺省为 true 以兼容旧配置；非布尔值拒绝。`ConnectionPolicy.runtime` 在准备、启动和重载前过滤关闭项，去除全部关闭节点的 listen-ports；原生层只收到开启映射，原有清理逻辑在重载时关闭旧 listener / 流。修改端口、连接重命名、订阅刷新和连接整体启停均保留逐端口状态。关闭的映射仍计入每连接 16 条上限与端口唯一性校验。
 
 ## WireGuard 本机 TCP 转发（0.3.14）
 

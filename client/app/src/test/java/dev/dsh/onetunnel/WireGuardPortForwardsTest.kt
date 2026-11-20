@@ -19,6 +19,23 @@ class WireGuardPortForwardsTest {
     private val ports = listOf(TunnelPortForward(8022), TunnelPortForward(2222, 8022))
     private fun edited() = ConnectionEditing.wireGuard(profile, "WG", "WG", conf, ProfileEditor.WG_OUTBOUND_ONLY, ports)
 
+    @Test fun individualSwitchFiltersRuntimeAndKeepsOffStateAcrossWireGuardEdits() {
+        val initial = edited()
+        val disabled = TunnelPortForwards.setEnabled(initial, "WG", 8022, false)
+        val renamed = ConnectionEditing.wireGuard(disabled, "WG", "WG-new", conf, ProfileEditor.WG_OUTBOUND_ONLY)
+        val savedPorts = listOf(TunnelPortForward(8022, enabled = false), TunnelPortForward(2222, 8022))
+        assertEquals(savedPorts, TunnelPortForwards.read(ConnectionEditing.node(renamed, "WG-new")))
+        assertEquals(listOf(TunnelPortForward(2222, 8022)),
+            TunnelPortForwards.read(ConnectionEditing.node(ConnectionPolicy.runtime(renamed), "WG-new")))
+        assertEquals(ConnectionEditing.node(initial, "WG")["peers"], ConnectionEditing.node(renamed, "WG-new")["peers"])
+        val off = ConnectionPolicy.setEnabled(renamed, "WG-new", false)
+        assertEquals(savedPorts, TunnelPortForwards.read(ConnectionEditing.node(off, "WG-new")))
+        assertFalse(ConnectionPolicy.runtime(off).contains("listen-ports"))
+        val restored = TunnelPortForwards.setEnabled(disabled, "WG", 8022, true)
+        assertEquals(ProfileEditor.root(initial), ProfileEditor.root(restored))
+        ProfileCheck.check(ConnectionPolicy.runtime(renamed))
+    }
+
     @Test fun importsAndExistingEditsKeepInboundClosedByDefault() {
         assertFalse(ConnectionEditing.node(profile, "WG").containsKey("listen-ports"))
         val result = ConnectionEditing.wireGuard(profile, "WG", "WG", conf, ProfileEditor.WG_OUTBOUND_ONLY)
