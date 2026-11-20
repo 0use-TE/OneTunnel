@@ -34,7 +34,6 @@ object TunnelSurfaces {
         else -> "未连接"
     }
     fun intent(context: Context, status: TunnelStatus): Intent = when (ShortcutPolicy.action(status)) {
-        ShortcutAction.VPN_SETTINGS -> Intent(android.provider.Settings.ACTION_VPN_SETTINGS)
         ShortcutAction.DISCONNECT -> Intent(context, QuickConnectActivity::class.java).setAction(QuickConnectActivity.DISCONNECT)
         ShortcutAction.OPEN -> Intent(context, MainActivity::class.java)
         ShortcutAction.CONNECT -> Intent(context, QuickConnectActivity::class.java).setAction(QuickConnectActivity.CONNECT)

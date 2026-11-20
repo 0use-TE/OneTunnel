@@ -43,7 +43,6 @@ class CoreControl(private val context: Context) : ServiceConnection {
         if (request.second == "reload") reloading = false
         runCatching {
             val result = JSONObject(message.data.getString("result").orEmpty())
-            if (result.optBoolean("lifecycle")) return@runCatching
             if (result.has("error")) { error = result.optString("error"); if (request.second == "reload") reloadFailed = true; if (request.second == "login") loginFlow.cancel(request.first); return@runCatching }
             if (result.optBoolean("reloaded")) { error = ""; snapshots = emptyMap(); return@runCatching }
             fun strings(array: JSONArray?): List<String> = if (array == null) emptyList() else (0 until array.length()).map { array.optString(it) }
@@ -100,8 +99,6 @@ class CoreControl(private val context: Context) : ServiceConnection {
     fun request(name: String, action: String): Boolean {
         val remote = server ?: return false
         if (updating) return false
-        // A foreground status query must never prevent an immediately requested reload.
-        if (action == "reload") pending.entries.removeAll { it.value.second == "lifecycle" }
         if (pending.values.any { it.first == name }) return false
         val id = ++sequence
         pending[id] = name to action

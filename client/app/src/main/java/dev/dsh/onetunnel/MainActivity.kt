@@ -125,7 +125,6 @@ class MainActivity : ComponentActivity() {
         var text by remember { mutableStateOf("") } // Never save plaintext credentials to instance state.
         var saved by remember { mutableStateOf("") }
         var status by remember { mutableStateOf(TunnelStatus()) }
-        var recoveryEnabled by remember { mutableStateOf(false) }
         var busy by remember { mutableStateOf(true) }
         var message by remember { mutableStateOf("") }
         var confirmStart by remember { mutableStateOf(false) }
@@ -253,7 +252,6 @@ class MainActivity : ComponentActivity() {
             while (status.active && (foreground.value || core.updating)) {
                 core.bind()
                 if (core.connected && pendingTailLogin == null) {
-                    core.request("", "lifecycle")
                     val names = if (status.state in listOf("auth", "auth-starting")) listOfNotNull(authTarget)
                         else ConnectionPolicy.entries(saved).filter { it.type == "tailscale" && it.enabled }.map { it.name }
                     names.forEach { core.request(it, "status") }
@@ -278,10 +276,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         LaunchedEffect(foreground.value) {
-            if (foreground.value) {
-                recoveryEnabled = withContext(Dispatchers.IO) { runCatching { RecoveryStore(this@MainActivity).read().enabled }.getOrDefault(false) }
-                TunnelSurfaces.refresh(this@MainActivity)
-            }
+            if (foreground.value) TunnelSurfaces.refresh(this@MainActivity)
             while (foreground.value) {
                 status = withContext(Dispatchers.IO) { StatusStore(this@MainActivity).read() }
                 delay(1000)
@@ -419,11 +414,10 @@ class MainActivity : ComponentActivity() {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Text(stateLabel, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                                     Switch(checked = status.active, onCheckedChange = { if (it) confirmStart = true else stopTunnel() },
-                                        enabled = (!status.alwaysOn || !status.active) && !busy && status.state !in listOf("starting", "stopping") &&
+                                        enabled = !busy && status.state !in listOf("starting", "stopping") &&
                                             (status.active || (saved.isNotBlank() && !dirty && summary != null)))
                                 }
                                 SettingRow("其他流量使用", matchOptions[view?.match] ?: if (view == null) "待配置" else "自定义")
-                                if (status.alwaysOn) TextButton(onClick = { TunnelActions.vpnSettings(this@MainActivity) }) { Text("系统 VPN 设置") }
                             }
                             if (status.state == "error") Note(status.message, error = true)
                             Button(onClick = { addConnection = true }, enabled = canToggle, modifier = Modifier.fillMaxWidth()) { Text("添加连接") }
@@ -531,21 +525,6 @@ class MainActivity : ComponentActivity() {
                                         }, label = { Text(label) })
                                     }
                                 }
-                            }
-                            SectionLabel("后台运行")
-                            Panel {
-                                ToggleRow("异常自动恢复", recoveryEnabled, true) { enabled ->
-                                    runCatching {
-                                        RecoveryStore(this@MainActivity).configure(enabled, status.state == "running")
-                                        recoveryEnabled = enabled
-                                        if (status.active) startService(Intent(this@MainActivity, TunnelService::class.java).setAction(TunnelService.RECOVERY_CHANGED))
-                                    }.onFailure { message = "后台设置应用失败，请重试。" }
-                                }
-                                TextButton(onClick = { runCatching { TunnelActions.vpnSettings(this@MainActivity) }
-                                    .onFailure { message = "无法打开系统 VPN 设置。" } }) { Text("始终开启 VPN") }
-                                TextButton(onClick = { runCatching {
-                                    startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-                                }.onFailure { message = "无法打开系统后台设置。" } }) { Text("系统后台设置") }
                             }
                             SectionLabel("快捷入口")
                             Panel {

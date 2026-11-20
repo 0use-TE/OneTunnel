@@ -1,5 +1,14 @@
 # 构建与静态验证记录
 
+## 0.3.20-alpha：移除自动恢复，保留小组件和快捷开关（2026-11-19）
+
+- 用户反馈 0.3.19 更新后打开应用闪烁且无法工作，按要求移除 RecoveryPolicy / RecoveryStore、自动重建 / 重试预算 / 延迟、系统常驻状态同步及设置入口。服务恢复为用户显式启动且所有分支 START_NOT_STICKY，清单禁用系统 always-on；旧版恢复状态文件不再读取，不迁移或清除连接数据。
+- 保留现有猫形 Logo、桌面组件、下拉快捷开关、通知停止按钮、独立前台服务以及 stopWithTask=false。所有停止入口直接停止 VPN；移除仅供常驻模式使用的系统设置跳转。正常服务仍可在离开界面后继续工作，进程异常结束后需要手动连接。原生核心、连接、订阅、规则与端口转发未改动。
+- 删除恢复功能的 8 项测试，快捷入口测试保留并更新；90 项 JVM 测试通过。assembleDebug、lintDebug、签名、包名和空白检查通过；APK 内原生库与工作区库一致，沿用原开发签名。
+- 只读检查连接设备的选定日志窗口，未捕获 OneTunnel 致命异常；系统 always-on 配置为空。未安装、打开应用或启停设备 VPN，不能确认闪烁根因或声称实机已恢复。覆盖安装后的界面与联网验收交给用户。
+- 构建后收到用户“先帮我 install”指令，已通过 ADB `install -r` 覆盖安装至 HA2NHJLY，返回 Success，并核对 versionCode 24 / 0.3.20-alpha。未清数据，未打开应用或启动 VPN，继续由用户测试。
+- APK：`artifacts/OneTunnel-0.3.20-alpha-arm64.apk`，versionCode 24，29,011,795 字节，SHA-256：`e7f380d5958494fea8994f33d1ee5e49ecdf5770ff8dd8e06a63d7fac8ba66a9`。
+
 ## 0.3.19-alpha：猫形快捷图标与明确的断开操作（2026-11-19）
 
 - 将通用条形 ic_status 改成现有批准 Logo 的猫形单色矢量，透明眼睛和笑脸；磁贴、添加磁贴预览、桌面按钮、通知统一使用，保留原桌面 PNG。矢量经 Windows WPF 渲染检查，预览位于 artifacts/onetunnel-shortcut-icon-preview.png，未编辑原 Logo 位图。

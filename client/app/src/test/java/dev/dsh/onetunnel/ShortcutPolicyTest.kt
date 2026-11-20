@@ -23,14 +23,10 @@ class ShortcutPolicyTest {
         }
         assertFalse(ShortcutPolicy.enabled(TunnelStatus("stopping")))
     }
-    @Test fun authenticationIsOpenedWithoutStartingAVpnAndAlwaysOnUsesSystemSettings() {
+    @Test fun authenticationIsOpenedWithoutStartingAVpn() {
         for (state in listOf("auth", "auth-starting")) {
             assertEquals(ShortcutAction.OPEN, ShortcutPolicy.action(TunnelStatus(state)))
             assertFalse(ShortcutPolicy.active(TunnelStatus(state)))
         }
-        assertEquals(ShortcutAction.VPN_SETTINGS, ShortcutPolicy.action(TunnelStatus("running", alwaysOn = true)))
-        assertEquals(ShortcutAction.VPN_SETTINGS, ShortcutPolicy.action(TunnelStatus("preparing", alwaysOn = true)))
-        assertEquals("系统 VPN 设置", ShortcutPolicy.hint(TunnelStatus("running", alwaysOn = true)))
-        assertEquals(ShortcutAction.CONNECT, ShortcutPolicy.action(TunnelStatus("error", alwaysOn = true)))
     }
 }

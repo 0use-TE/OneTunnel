@@ -27,7 +27,7 @@
         <service android:name=".TunnelService" android:permission="android.permission.BIND_VPN_SERVICE" android:exported="true" android:process=":vpn" android:stopWithTask="false" android:foregroundServiceType="specialUse">
             <intent-filter><action android:name="android.net.VpnService" /></intent-filter>
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-initiated VPN packet routing through Mihomo" />
-            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="true" />
+            <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false" />
         </service>
     </application>
 </manifest>

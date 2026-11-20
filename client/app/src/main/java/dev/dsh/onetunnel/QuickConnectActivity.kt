@@ -8,7 +8,6 @@ import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -84,10 +83,7 @@ class QuickConnectActivity : ComponentActivity() {
 }
 
 object TunnelActions {
-    fun vpnSettings(context: Context) { context.startActivity(Intent(Settings.ACTION_VPN_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     fun stop(context: Context) {
-        if (StatusStore(context).read().alwaysOn) { vpnSettings(context); return }
-        RecoveryStore(context).stop()
         context.startService(Intent(context, TunnelService::class.java).setAction(TunnelService.STOP))
     }
 }

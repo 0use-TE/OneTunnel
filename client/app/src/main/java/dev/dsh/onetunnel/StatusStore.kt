@@ -9,14 +9,14 @@ import android.util.AtomicFile
 import org.json.JSONObject
 import java.io.File
 
-data class TunnelStatus(val state: String = "idle", val message: String = "未连接", val alwaysOn: Boolean = false) {
+data class TunnelStatus(val state: String = "idle", val message: String = "未连接") {
     val active: Boolean get() = state in listOf("preparing", "starting", "running", "stopping", "auth-starting", "auth")
 }
 class StatusStore(private val context: Context) {
     private val file = AtomicFile(File(context.noBackupFilesDir, "tunnel-status.json"))
-    fun write(state: String, message: String, alwaysOn: Boolean = false) {
+    fun write(state: String, message: String) {
         val bytes = JSONObject().put("state", state).put("message", message.take(700))
-            .put("pid", Process.myPid()).put("elapsed", SystemClock.elapsedRealtime()).put("alwaysOn", alwaysOn)
+            .put("pid", Process.myPid()).put("elapsed", SystemClock.elapsedRealtime())
             .toString().toByteArray()
         val output = file.startWrite()
         try { output.write(bytes); file.finishWrite(output) }
@@ -26,7 +26,7 @@ class StatusStore(private val context: Context) {
     fun read(): TunnelStatus = runCatching {
         if (!file.baseFile.exists()) return TunnelStatus()
         val obj = JSONObject(file.readFully().toString(Charsets.UTF_8))
-        val status = TunnelStatus(obj.getString("state"), obj.getString("message"), obj.optBoolean("alwaysOn"))
+        val status = TunnelStatus(obj.getString("state"), obj.getString("message"))
         if (status.active) {
             require(obj.getLong("elapsed") <= SystemClock.elapsedRealtime())
             Os.kill(obj.getInt("pid"), 0)
