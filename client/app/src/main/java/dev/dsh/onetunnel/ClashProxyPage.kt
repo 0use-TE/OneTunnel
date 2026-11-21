@@ -2,6 +2,7 @@
 package dev.dsh.onetunnel
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -23,6 +24,7 @@ import kotlinx.coroutines.delay
     var groupName by remember(title) { mutableStateOf(configured.firstOrNull()?.name.orEmpty()) }
     var search by remember(title) { mutableStateOf("") }
     var menu by remember { mutableStateOf(false) }
+    var detail by remember(title, groupName) { mutableStateOf<Pair<String, ClashDelay>?>(null) }
     val runtime = controller.state?.takeIf { live && it.group == groupName }
     val groups = configured.map { config -> runtime?.groups?.firstOrNull { it.name == config.name } ?: config }
     val group = groups.firstOrNull { it.name == groupName }
@@ -96,17 +98,10 @@ import kotlinx.coroutines.delay
         }
         items(visible, key = { it.name }) { node ->
             val selected = node.name == group?.now && ((live && runtime != null) || (!live && group?.manual == true))
-            val measured = controller.delays[node.name].takeIf { live }
-            val label = when {
-                live && node.name in controller.testing -> "测速中"
-                measured?.status == "ok" -> "${measured.millis} ms"
-                measured?.status == "timeout" -> "超时"
-                measured?.status == "cancelled" -> "已停止"
-                measured != null -> "失败"
-                live && node.delay != null && node.delay > 0 -> "${node.delay} ms"
-                live && node.delay == 0 -> "失败"
-                else -> "未测试"
+            val measured = controller.delays[node.name].takeIf { live } ?: node.delay?.takeIf { live }?.let {
+                ClashDelay(if (it > 0) "ok" else "failed", it, host = node.probeHost, timeoutMs = node.timeoutMs)
             }
+            val label = if (live && node.name in controller.testing) "测速中" else measured?.label ?: "未测试"
             val color = MaterialTheme.colorScheme
             Surface(onClick = {
                 if (live) controller.select(groupName, node.name) else selectOffline(groupName, node.name)
@@ -117,7 +112,9 @@ import kotlinx.coroutines.delay
                     Text((if (selected) "✓  " else "") + node.name, maxLines = 2, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodyLarge, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(label, modifier = Modifier.weight(1f), color = if (measured?.status in listOf("failed", "timeout")) color.error else color.onSurfaceVariant)
+                        Text(label, modifier = Modifier.weight(1f).clickable(enabled = measured != null && node.name !in controller.testing) {
+                            measured?.let { detail = node.name to it }
+                        }.padding(vertical = 8.dp), color = if (measured?.status in listOf("failed", "timeout")) color.error else color.onSurfaceVariant)
                         TextButton(onClick = { controller.test(groupName, listOf(node.name)) },
                             enabled = testable && !controller.testingBatch, contentPadding = PaddingValues(0.dp)) { Text("测速") }
                     }
@@ -126,5 +123,25 @@ import kotlinx.coroutines.delay
                 }
             }
         }
+    }
+    detail?.let { (name, result) ->
+        AlertDialog(onDismissRequest = { detail = null }, title = { Text(name) }, text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(result.label, style = MaterialTheme.typography.titleMedium)
+                if (result.host.isNotBlank()) Text("检测地址：${result.host}")
+                if (result.timeoutMs > 0) Text("超时上限：${result.timeoutMs / 1000.0} 秒")
+                Text(when {
+                    result.reason == "ipc" -> "测速服务未在规定时间内返回结果。"
+                    result.reason == "control" -> "测速请求未能完成，可以重新测试。"
+                    result.reason == "status" -> "检测地址的响应状态不符合订阅要求。"
+                    result.reason == "dns" -> "检测所需的域名解析失败。"
+                    result.reason == "tls" -> "检测连接的 TLS 握手或证书验证失败。"
+                    result.status == "timeout" -> "访问检测地址超时，其他网站可能仍可使用。"
+                    result.status == "cancelled" -> "本次检测已停止。"
+                    result.status == "ok" -> "通过该出口访问检测地址成功。"
+                    else -> "访问检测地址失败，其他网站可能仍可使用。"
+                })
+            }
+        }, confirmButton = { TextButton(onClick = { detail = null }) { Text("关闭") } })
     }
 }

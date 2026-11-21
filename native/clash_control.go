@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
-	"time"
 
 	"dev.dsh/onetunnel/native/proxycontrol"
 	"github.com/metacubex/mihomo/tunnel"
@@ -19,6 +18,7 @@ import (
 var clashGeneration uint64
 var clashContext, cancelClash = context.WithCancel(context.Background())
 var clashProbes = make(chan struct{}, 4)
+var clashProbePolicies proxycontrol.ProbePolicies
 
 func rotateClashSession() {
 	cancelClash()
@@ -67,7 +67,7 @@ func GoClashAction(actionText, groupText, targetText, generationText *C.char) (r
 		unlock()
 		return clashJSON(map[string]bool{"cancelled": true})
 	case "state":
-		state := proxycontrol.Snapshot(proxies, group)
+		state := proxycontrol.SnapshotWithPolicies(proxies, group, clashProbePolicies)
 		unlock()
 		return clashJSON(map[string]any{"generation": generation, "groups": state.Groups, "group": state.Group, "nodes": state.Nodes})
 	case "validate", "select":
@@ -92,12 +92,11 @@ func GoClashAction(actionText, groupText, targetText, generationText *C.char) (r
 			unlock()
 			return clashError("测速繁忙，请稍后重试")
 		}
-		ctx, cancel := context.WithTimeout(clashContext, 5*time.Second)
-		url, expectedStatus := proxycontrol.TestOptions(proxies, group)
+		ctx := clashContext
+		options := clashProbePolicies.Options(proxies, group, target)
 		unlock()
-		defer cancel()
 		defer func() { <-clashProbes }()
-		delay, err := proxy.URLTest(ctx, url, expectedStatus)
+		measurement := proxycontrol.Measure(ctx, proxy, options)
 		coreMu.Lock()
 		locked = true
 		stale := generation != strconv.FormatUint(clashGeneration, 10) || tun == nil
@@ -105,14 +104,9 @@ func GoClashAction(actionText, groupText, targetText, generationText *C.char) (r
 		if stale {
 			return clashError("配置已变化，请重新测速")
 		}
-		status := "ok"
-		if err != nil {
-			status = "failed"
-			if ctx.Err() != nil {
-				status = "timeout"
-			}
-		}
-		return clashJSON(map[string]any{"generation": generation, "name": target, "group": group, "delay": delay, "status": status})
+		return clashJSON(map[string]any{"generation": generation, "name": target, "group": group,
+			"delay": measurement.Delay, "status": measurement.Status, "reason": measurement.Reason,
+			"host": measurement.Host, "timeoutMs": measurement.TimeoutMS})
 	default:
 		unlock()
 		return clashError("不支持的代理操作")

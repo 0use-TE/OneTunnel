@@ -5,6 +5,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ClashProbeSessionTest {
+    @Test fun watchdogFollowsEachNodesTimeoutAndKeepsItAcrossStateRefreshes() {
+        val session = ClashProbeSession()
+        val nodes = mapOf("slow" to ClashNode("slow", "SOCKS5", timeoutMs = 15_000, probeHost = "test.invalid"),
+            "bounded" to ClashNode("bounded", "SOCKS5", timeoutMs = Int.MAX_VALUE))
+        session.start("core", "group", listOf("slow", "bounded", "default"), nodes)
+        val slow = requireNotNull(session.next())
+        assertEquals(17_000L, slow.responseTimeoutMs)
+        assertEquals("test.invalid", slow.host)
+        assertEquals(32_000L, session.next()?.responseTimeoutMs)
+        assertEquals(7_000L, session.next()?.responseTimeoutMs)
+        assertEquals(15_000, slow.timeoutMs)
+    }
+
+    @Test fun labelsDistinguishProbeFailuresFromControlFailuresAndCancellation() {
+        assertEquals("DNS 失败", ClashDelay("failed", reason = "dns").label)
+        assertEquals("TLS 失败", ClashDelay("failed", reason = "tls").label)
+        assertEquals("响应不符", ClashDelay("failed", reason = "status").label)
+        assertEquals("请求失败", ClashDelay("failed", reason = "control").label)
+        assertEquals("探测失败", ClashDelay("failed").label)
+        assertEquals("探测超时", ClashDelay("timeout").label)
+        assertEquals("请求超时", ClashDelay("timeout", reason = "ipc").label)
+        assertEquals("已停止", ClashDelay("cancelled").label)
+    }
+
     @Test fun limitsConcurrencyAndFinishingATimedOutNodeAdvancesTheQueue() {
         val session = ClashProbeSession()
         assertTrue(session.start("core", "group", (1..6).map { "node$it" }))
@@ -16,7 +40,7 @@ class ClashProbeSessionTest {
         assertEquals("node5", session.next()?.target)
         assertFalse(session.finish(active[0])) // Duplicate response cannot free another slot.
         assertNull(session.next())
-        assertEquals(7_000L, ClashProbeSession.RESPONSE_TIMEOUT_MS)
+        assertEquals(7_000L, active[0].responseTimeoutMs)
     }
 
     @Test fun stopClearsActiveAndQueuedLabelsBeforeNativeAcknowledges() {

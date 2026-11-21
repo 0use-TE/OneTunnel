@@ -12,9 +12,24 @@ data class ClashGroup(val name: String, val type: String, val now: String, val c
         else -> type
     }
 }
-data class ClashNode(val name: String, val type: String, val delay: Int? = null)
+data class ClashNode(val name: String, val type: String, val delay: Int? = null,
+    val timeoutMs: Int = 5_000, val probeHost: String = "")
 data class ClashState(val generation: String, val groups: List<ClashGroup>, val group: String, val nodes: List<ClashNode>)
-data class ClashDelay(val status: String, val millis: Int = 0)
+data class ClashDelay(val status: String, val millis: Int = 0, val reason: String = "",
+    val host: String = "", val timeoutMs: Int = 0) {
+    val label get() = when (status) {
+        "ok" -> "$millis ms"
+        "cancelled" -> "已停止"
+        "timeout" -> if (reason == "ipc") "请求超时" else "探测超时"
+        else -> when (reason) {
+            "dns" -> "DNS 失败"
+            "tls" -> "TLS 失败"
+            "status" -> "响应不符"
+            "control" -> "请求失败"
+            else -> "探测失败"
+        }
+    }
+}
 
 object ClashProfiles {
     fun selectionLabel(group: ClashGroup, groups: List<ClashGroup>): String {

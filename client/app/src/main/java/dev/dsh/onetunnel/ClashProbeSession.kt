@@ -5,7 +5,10 @@ import java.util.ArrayDeque
 
 /** Main-thread batch lifecycle; a core generation can contain many separate tests. */
 internal class ClashProbeSession {
-    data class Probe(val batch: Long, val generation: String, val group: String, val target: String)
+    data class Probe(val batch: Long, val generation: String, val group: String, val target: String,
+        val timeoutMs: Int = 5_000, val host: String = "") {
+        val responseTimeoutMs get() = timeoutMs.toLong() + 2_000L
+    }
 
     private var batch = 0L
     private val queue = ArrayDeque<Probe>()
@@ -16,10 +19,13 @@ internal class ClashProbeSession {
     val testing get() = active.map { it.target }.toSet()
     val busy get() = active.isNotEmpty() || queue.isNotEmpty()
 
-    fun start(generation: String, group: String, names: List<String>): Boolean {
+    fun start(generation: String, group: String, names: List<String>, nodes: Map<String, ClashNode> = emptyMap()): Boolean {
         if (busy || cancelling) return false
         batch++
-        names.distinct().filter { it.isNotBlank() }.forEach { queue.add(Probe(batch, generation, group, it)) }
+        names.distinct().filter { it.isNotBlank() }.forEach { name ->
+            val node = nodes[name]
+            queue.add(Probe(batch, generation, group, name, (node?.timeoutMs ?: 5_000).coerceIn(1, 30_000), node?.probeHost.orEmpty()))
+        }
         return true
     }
 
@@ -48,8 +54,4 @@ internal class ClashProbeSession {
 
     fun reset() { cancel(); retiring.clear(); cancellationFinished() }
 
-    companion object {
-        // Native URLTest uses a five-second deadline; allow two seconds for IPC.
-        const val RESPONSE_TIMEOUT_MS = 7_000L
-    }
 }

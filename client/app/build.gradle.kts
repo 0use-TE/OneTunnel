@@ -11,8 +11,8 @@ android {
         applicationId = "dev.dsh.onetunnel"
         minSdk = 26
         targetSdk = 34
-        versionCode = 26
-        versionName = "0.3.22-alpha"
+        versionCode = 27
+        versionName = "0.3.23-alpha"
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true; aidl = false; renderScript = false }

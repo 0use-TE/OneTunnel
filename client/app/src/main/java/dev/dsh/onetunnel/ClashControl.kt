@@ -44,7 +44,7 @@ class ClashControl(private val context: Context, private val profileChanged: (()
                 if (request.action == "select") selecting = false
                 if (request.action == "delay") {
                     if (request.generation == state?.generation && request.group == viewGroup)
-                        delays = delays + (request.target to ClashDelay("failed"))
+                        delays = delays + (request.target to failedProbe(request, "control"))
                 } else error = result.optString("error")
                 return@runCatching
             }
@@ -58,7 +58,8 @@ class ClashControl(private val context: Context, private val profileChanged: (()
                     state = ClashState(generation, (0 until groups.length()).map { i -> groups.getJSONObject(i).let {
                         ClashGroup(it.getString("name"), it.getString("type"), it.optString("now"), it.optInt("count"))
                     } }, result.optString("group"), (0 until nodes.length()).map { i -> nodes.getJSONObject(i).let {
-                        ClashNode(it.getString("name"), it.getString("type"), if (it.isNull("delay")) null else it.getInt("delay"))
+                        ClashNode(it.getString("name"), it.getString("type"), if (it.isNull("delay")) null else it.getInt("delay"),
+                            it.optInt("timeoutMs", 5_000).coerceIn(1, 30_000), it.optString("probeHost"))
                     } })
                     error = ""
                 }
@@ -67,13 +68,14 @@ class ClashControl(private val context: Context, private val profileChanged: (()
                     if (releaseAfterSelection) unbind(force = true) else refresh(viewGroup)
                 }
                 "delay" -> if (result.optString("generation") == state?.generation && request.group == viewGroup) {
-                    delays = delays + (request.target to ClashDelay(result.optString("status"), result.optInt("delay")))
+                    delays = delays + (request.target to ClashDelay(result.optString("status"), result.optInt("delay"),
+                        result.optString("reason"), result.optString("host"), result.optInt("timeoutMs")))
                 }
             }
         }.onFailure {
             if (request.action == "select") selecting = false
             if (request.action == "cancel") { probes.cancellationFinished(); syncTests() }
-            if (request.action == "delay") delays = delays + (request.target to ClashDelay("failed"))
+            if (request.action == "delay") delays = delays + (request.target to failedProbe(request, "control"))
             error = "代理状态读取失败，请重试。"
         }
         pump()
@@ -113,7 +115,8 @@ class ClashControl(private val context: Context, private val profileChanged: (()
     }
     fun test(group: String, names: List<String>) {
         val generation = state?.generation ?: return
-        if (!connected || selecting || group != viewGroup || !probes.start(generation, group, names)) return
+        if (!connected || selecting || group != viewGroup ||
+            !probes.start(generation, group, names, state?.nodes.orEmpty().associateBy { it.name })) return
         error = ""
         pump()
     }
@@ -133,6 +136,8 @@ class ClashControl(private val context: Context, private val profileChanged: (()
     private fun syncTests() {
         testing = probes.testing; testingBatch = probes.busy; cancellingTests = probes.cancelling
     }
+    private fun failedProbe(request: Request, reason: String, status: String = "failed") =
+        ClashDelay(status, reason = reason, host = request.probe?.host.orEmpty(), timeoutMs = request.probe?.timeoutMs ?: 0)
     private fun pump() {
         while (true) {
             val probe = probes.next() ?: break
@@ -140,7 +145,7 @@ class ClashControl(private val context: Context, private val profileChanged: (()
             if (probe.generation != state?.generation ||
                 !send(Request("delay", probe.group, probe.target, probe.generation, probe))) {
                 probes.finish(probe)
-                delays = delays + (probe.target to ClashDelay("failed"))
+                delays = delays + (probe.target to ClashDelay("failed", reason = "control", host = probe.host, timeoutMs = probe.timeoutMs))
                 syncTests()
             }
         }
@@ -163,7 +168,7 @@ class ClashControl(private val context: Context, private val profileChanged: (()
                         val current = probes.finish(requireNotNull(request.probe))
                         syncTests()
                         if (current && request.generation == state?.generation && request.group == viewGroup)
-                            delays = delays + (request.target to ClashDelay("timeout"))
+                            delays = delays + (request.target to failedProbe(request, "ipc", "timeout"))
                         pump()
                     }
                     else if (request.action == "cancel") {
@@ -175,7 +180,7 @@ class ClashControl(private val context: Context, private val profileChanged: (()
                         if (releaseAfterSelection) unbind(force = true)
                     }
                 }
-            }, if (request.action == "delay") ClashProbeSession.RESPONSE_TIMEOUT_MS else 12_000L)
+            }, request.probe?.responseTimeoutMs ?: 12_000L)
             true
         }.getOrElse { pending.remove(id); error = "无法连接代理服务。"; false }
     }

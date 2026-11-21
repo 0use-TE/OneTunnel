@@ -19,9 +19,11 @@ type Group struct {
 	Count int    `json:"count"`
 }
 type Node struct {
-	Name  string  `json:"name"`
-	Type  string  `json:"type"`
-	Delay *uint16 `json:"delay"`
+	Name      string  `json:"name"`
+	Type      string  `json:"type"`
+	Delay     *uint16 `json:"delay"`
+	TimeoutMS int64   `json:"timeoutMs"`
+	ProbeHost string  `json:"probeHost"`
 }
 type State struct {
 	Groups []Group `json:"groups"`
@@ -30,6 +32,10 @@ type State struct {
 }
 
 func Snapshot(proxies map[string]C.Proxy, name string) State {
+	return SnapshotWithPolicies(proxies, name, ProbePolicies{})
+}
+
+func SnapshotWithPolicies(proxies map[string]C.Proxy, name string, policies ProbePolicies) State {
 	s := State{Groups: []Group{}, Group: name, Nodes: []Node{}}
 	for key, proxy := range proxies {
 		if key == "GLOBAL" {
@@ -46,10 +52,11 @@ func Snapshot(proxies map[string]C.Proxy, name string) State {
 			}
 			s.Groups = append(s.Groups, Group{key, proxy.Type().String(), group.Now(), len(members)})
 			if key == name {
-				url, _ := TestOptions(proxies, key)
+				optionsFor := policies.Resolver(proxies, key)
 				for _, member := range members {
-					n := Node{Name: member.Name(), Type: member.Type().String()}
-					if history := member.ExtraDelayHistories()[url].History; len(history) > 0 {
+					options := optionsFor(member.Name())
+					n := Node{Name: member.Name(), Type: member.Type().String(), TimeoutMS: options.Timeout.Milliseconds(), ProbeHost: options.Host()}
+					if history := member.ExtraDelayHistories()[options.URL].History; len(history) > 0 {
 						delay := history[len(history)-1].Delay
 						n.Delay = &delay
 					}

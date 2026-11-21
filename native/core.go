@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"dev.dsh/onetunnel/native/appsettings"
+	"dev.dsh/onetunnel/native/proxycontrol"
 
 	"github.com/metacubex/mihomo/component/dialer"
 	"github.com/metacubex/mihomo/component/process"
@@ -273,6 +274,7 @@ func GoStartCore(homeText, configText *C.char, androidFD C.int) (result *C.char)
 	configured = true // Mark before applying so failure cleanup can close partially started outbounds.
 	executor.ApplyConfig(cfg, true)
 	stage = "Android TUN attachment"
+	clashProbePolicies = proxycontrol.ReadProbePolicies(text)
 	rotateClashSession()
 	fd, err := syscall.Dup(int(androidFD))
 	if err != nil {
@@ -403,6 +405,7 @@ func GoReloadCore(configText *C.char) (result *C.char) {
 		_ = proxy.Close()
 	}
 	executor.ApplyConfig(cfg, true)
+	clashProbePolicies = proxycontrol.ReadProbePolicies(C.GoString(configText))
 	rotateClashSession()
 	if err := startTunnelInbounds(); err != nil {
 		stopLocked()
@@ -413,6 +416,7 @@ func GoReloadCore(configText *C.char) (result *C.char) {
 
 func stopLocked() {
 	rotateClashSession()
+	clashProbePolicies = proxycontrol.ProbePolicies{}
 	cancelClash()
 	if stopRouteTrace != nil {
 		stopRouteTrace()
