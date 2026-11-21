@@ -14,25 +14,32 @@ import (
 // OneTunnelListenPort exposes an explicitly selected TCP port inside a tunnel.
 // The target is always IPv4 loopback; no LAN listener or arbitrary host.
 type OneTunnelListenPort struct {
-	Port      int `proxy:"port"`
-	LocalPort int `proxy:"local-port,omitempty"`
+	Port      int   `proxy:"port"`
+	LocalPort int   `proxy:"local-port,omitempty"`
+	Enabled   *bool `proxy:"enabled,omitempty"`
 }
 
 type oneTunnelForwarder struct {
-	ports     []OneTunnelListenPort
-	mu        sync.Mutex
-	closed    bool
-	started   bool
-	listeners []net.Listener
-	active    map[net.Conn]net.Conn
-	cancel    context.CancelFunc
+	ports      []OneTunnelListenPort
+	mu         sync.Mutex
+	closed     bool
+	started    bool
+	listeners  []net.Listener
+	active     map[net.Conn]net.Conn
+	cancel     context.CancelFunc
+	all        bool
+	targets    map[uint16]int
+	blocked    map[uint16]bool
+	unregister func()
+	udpIdle    time.Duration
 }
 
-func newOneTunnelForwarder(ports []OneTunnelListenPort) (*oneTunnelForwarder, error) {
+func newOneTunnelForwarder(ports []OneTunnelListenPort, all bool) (*oneTunnelForwarder, error) {
 	if len(ports) > 16 {
 		return nil, errors.New("at most 16 inbound ports are supported")
 	}
-	g := &oneTunnelForwarder{active: make(map[net.Conn]net.Conn)}
+	g := &oneTunnelForwarder{active: make(map[net.Conn]net.Conn), all: all,
+		targets: make(map[uint16]int), blocked: make(map[uint16]bool), udpIdle: time.Minute}
 	seen := make(map[int]bool)
 	for _, port := range ports {
 		if port.LocalPort == 0 {
@@ -42,6 +49,11 @@ func newOneTunnelForwarder(ports []OneTunnelListenPort) (*oneTunnelForwarder, er
 			return nil, errors.New("invalid or duplicate inbound port")
 		}
 		seen[port.Port] = true
+		if port.Enabled != nil && !*port.Enabled {
+			g.blocked[uint16(port.Port)] = true
+			continue
+		}
+		g.targets[uint16(port.Port)] = port.LocalPort
 		g.ports = append(g.ports, port)
 	}
 	return g, nil
@@ -49,8 +61,8 @@ func newOneTunnelForwarder(ports []OneTunnelListenPort) (*oneTunnelForwarder, er
 
 // start receives a tunnel's virtual listener, never net.Listen. Bind every configured
 // listener before accepting, so a bind failure does not partially apply a list.
-func (g *oneTunnelForwarder) start(parent context.Context, listen func(string, string) (net.Listener, error)) error {
-	if g == nil || len(g.ports) == 0 {
+func (g *oneTunnelForwarder) start(parent context.Context, listen func(string, string) (net.Listener, error), register oneTunnelRegisterFallback) error {
+	if g == nil || (len(g.ports) == 0 && !g.all) {
 		return nil
 	}
 	g.mu.Lock()
@@ -78,6 +90,31 @@ func (g *oneTunnelForwarder) start(parent context.Context, listen func(string, s
 		g.listeners = append(g.listeners, listener)
 		g.mu.Unlock()
 	}
+	if g.all {
+		if register == nil {
+			g.close()
+			return errors.New("all-port forwarding unavailable")
+		}
+		unregister, err := register(ctx, g.fallback(ctx, false), g.fallback(ctx, true))
+		if err != nil {
+			if unregister != nil {
+				unregister()
+			}
+			g.close()
+			return errors.New("all-port forwarding failed")
+		}
+		g.mu.Lock()
+		if g.closed || ctx.Err() != nil {
+			g.mu.Unlock()
+			if unregister != nil {
+				unregister()
+			}
+			g.close()
+			return errors.New("inbound forwarder stopped")
+		}
+		g.unregister = unregister
+		g.mu.Unlock()
+	}
 	g.mu.Lock()
 	listeners := append([]net.Listener(nil), g.listeners...)
 	g.mu.Unlock()
@@ -94,15 +131,7 @@ func (g *oneTunnelForwarder) accept(ctx context.Context, listener net.Listener, 
 		if err != nil {
 			return
 		}
-		g.mu.Lock()
-		if g.closed || len(g.active) >= 64 {
-			g.mu.Unlock()
-			_ = incoming.Close()
-			continue
-		}
-		g.active[incoming] = nil
-		g.mu.Unlock()
-		go g.forward(ctx, incoming, port)
+		g.take(ctx, incoming, port, false)
 	}
 }
 
@@ -171,9 +200,13 @@ func (g *oneTunnelForwarder) close() {
 		}
 	}
 	cancel := g.cancel
+	unregister := g.unregister
 	g.mu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	if unregister != nil {
+		unregister()
 	}
 	for _, listener := range listeners {
 		_ = listener.Close()

@@ -23,6 +23,8 @@ object ClashImport {
             it.entries.associateTo(linkedMapOf<String, Any?>()) { entry -> entry.key.toString() to entry.value }
         }.orEmpty()
         val providers = root["proxy-providers"] as? Map<*, *>
+        // Full device-port access is a local choice, never enabled by a fetched subscription.
+        if (source != null) nodes.forEach { it.remove("listen-all-ports") }
         require(nodes.isNotEmpty() || !providers.isNullOrEmpty()) {
             "没有找到代理节点或 proxy-providers。请使用完整 Clash / Mihomo YAML；不支持 Verge 合并片段、JS 脚本或 Base64 节点列表。"
         }

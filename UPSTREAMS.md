@@ -27,3 +27,5 @@ Android VPN App 使用额外的 `onetunnel` build tag，以及 `native/overlay/a
 0.3.13 另加 `native/overlay/tailscale-inbound.patch`，为同一固定版本的 TailscaleOption 接入 `listen-ports`、启动和关闭钩子。没有修改 tsnet 默认未注册端口拒绝逻辑；只有显式配置的 Server.Listen 端口转发到设备 127.0.0.1。
 
 0.3.14 增加 `wireguard-inbound.patch`，为 WireGuardOption 接入同一端口字段，设备初始化时通过现有用户态协议栈 ListenTCP 监听。共享转发器合并至 `native/overlay/onetunnel_forward.go`，WG 启动接口位于 `onetunnel_wireguard.go`。脚本复制共享 overlay/回归测试，清理旧版 TS 专用转发文件，并幂等应用三个补丁；保留默认 mipstack 和可选 gVisor，两者均由加密隧道回归测试覆盖。
+
+0.3.21 增加 `all-port-inbound.patch`，为 WG / TS 选项加入 `listen-all-ports`。共享转发器新增 TCP / UDP fallback 和有界、带空闲回收的 UDP 会话；TS 使用固定 fork 的 RegisterFallbackTCPHandler / RegisterFallbackUDPHandler，WG 的 mipstack 使用 NewTCPForwarder / NewUDPForwarder，gVisor 使用 RegisterForward。回调只允许连接自身地址，目标仍是本机 loopback；仅认证会话移除全部端口开关。准备脚本在检查前三个补丁前先逆向恢复已应用的第四个补丁，再按顺序重放，兼容旧工作区并保持重复运行幂等。

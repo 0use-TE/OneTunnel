@@ -8,14 +8,58 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"sort"
+
+	"github.com/metacubex/tailscale/tsnet"
+	"github.com/metacubex/tailscale/types/nettype"
 )
 
 func (t *Tailscale) OneTunnelStartInbound() error {
-	if len(t.option.ListenPorts) == 0 {
+	if len(t.option.ListenPorts) == 0 && !t.option.ListenAllPorts {
 		return nil
 	}
 	return t.start()
+}
+
+type oneTunnelTailscaleServer interface {
+	TailscaleIPs() (netip.Addr, netip.Addr)
+	RegisterFallbackTCPHandler(tsnet.FallbackTCPHandler) func()
+	RegisterFallbackUDPHandler(tsnet.FallbackUDPHandler) func()
+}
+
+func (t *Tailscale) oneTunnelListen() error {
+	return t.oneTunnelForwarder.start(t.ctx, t.server.Listen, func(ctx context.Context, tcp, udp oneTunnelFallback) (func(), error) {
+		return oneTunnelRegisterTailscaleFallback(ctx, t.server, tcp, udp), nil
+	})
+}
+
+func oneTunnelRegisterTailscaleFallback(ctx context.Context, server oneTunnelTailscaleServer, tcp, udp oneTunnelFallback) func() {
+	local := func(dst netip.AddrPort) bool {
+		if ctx.Err() != nil {
+			return false
+		}
+		ipv4, ipv6 := server.TailscaleIPs()
+		return dst.Addr().IsValid() && (dst.Addr() == ipv4 || dst.Addr() == ipv6)
+	}
+	unregisterTCP := server.RegisterFallbackTCPHandler(func(src, dst netip.AddrPort) (func(net.Conn), bool) {
+		if !local(dst) {
+			return nil, true
+		}
+		return tcp(src, dst)
+	})
+	unregisterUDP := server.RegisterFallbackUDPHandler(func(src, dst netip.AddrPort) (func(nettype.ConnPacketConn), bool) {
+		if !local(dst) {
+			return nil, true
+		}
+		serve, intercept := udp(src, dst)
+		if serve == nil {
+			return nil, intercept
+		}
+		return func(conn nettype.ConnPacketConn) { serve(conn) }, intercept
+	})
+	return func() { unregisterTCP(); unregisterUDP() }
 }
 
 // ParseProxy wraps every outbound in autoCloseProxyAdapter. Forward the narrow

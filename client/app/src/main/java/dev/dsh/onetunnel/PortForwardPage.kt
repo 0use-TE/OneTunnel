@@ -32,6 +32,9 @@ private data class ForwardTarget(val connection: String, val port: Int? = null)
     val ports = remember(profile) { entries.associate { entry ->
         entry.name to TunnelPortForwards.read(ConnectionEditing.node(profile, entry.name))
     } }
+    val allPorts = remember(profile) { entries.associate { entry ->
+        entry.name to TunnelPortForwards.allEnabled(ConnectionEditing.node(profile, entry.name))
+    } }
     var editing by remember { mutableStateOf<ForwardTarget?>(null) }
     var deleting by remember { mutableStateOf<ForwardTarget?>(null) }
     var error by remember { mutableStateOf("") }
@@ -41,7 +44,10 @@ private data class ForwardTarget(val connection: String, val port: Int? = null)
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("${ports.values.sumOf { it.size }} 条转发", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                val count = allPorts.values.count { it }
+                Text(if (count > 0) "全部端口 · $count 个连接" else "${ports.values.sumOf { it.size }} 条转发",
+                    modifier = Modifier.weight(1f).padding(end = 12.dp), style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold)
                 FilledTonalButton(onClick = { editing = ForwardTarget(entries.first { ports[it.name].orEmpty().size < 16 }.name) },
                     enabled = enabled && entries.any { ports[it.name].orEmpty().size < 16 }) {
                     Icon(Icons.Default.Add, null, Modifier.size(18.dp))
@@ -76,7 +82,16 @@ private data class ForwardTarget(val connection: String, val port: Int? = null)
                             Icon(Icons.Default.Add, "为 ${entry.name} 添加转发")
                         }
                     }
-                    if (mappings.isEmpty()) Text("暂无转发", Modifier.padding(8.dp, 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("全部端口转发", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                        Switch(checked = allPorts[entry.name] == true, enabled = enabled, onCheckedChange = { checked ->
+                            runCatching { TunnelPortForwards.setAllEnabled(profile, entry.name, checked) }
+                                .onSuccess { error = ""; save(it) }
+                                .onFailure { error = it.message ?: "无法切换全部端口转发。" }
+                        }, modifier = Modifier.semantics { contentDescription = "${entry.name} 的全部 TCP 和 UDP 端口转发" })
+                    }
+                    if (mappings.isEmpty() && allPorts[entry.name] != true)
+                        Text("暂无转发", Modifier.padding(8.dp, 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     mappings.forEach { mapping -> key(mapping.port) {
                         var menu by remember { mutableStateOf(false) }
                         val target = ForwardTarget(entry.name, mapping.port)

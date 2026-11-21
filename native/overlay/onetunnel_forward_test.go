@@ -23,7 +23,7 @@ func testOneTunnelListener(t *testing.T) *net.TCPListener {
 
 func testOneTunnelStart(t *testing.T, ctx context.Context, localPort int) (*oneTunnelForwarder, *net.TCPConn) {
 	t.Helper()
-	g, err := newOneTunnelForwarder([]OneTunnelListenPort{{Port: 8022, LocalPort: localPort}})
+	g, err := newOneTunnelForwarder([]OneTunnelListenPort{{Port: 8022, LocalPort: localPort}}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func testOneTunnelStart(t *testing.T, ctx context.Context, localPort int) (*oneT
 		}
 		tailnet = testOneTunnelListener(t)
 		return tailnet, nil
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestOneTunnelForwarderUnreachableLocalServiceFailsClosed(t *testing.T) {
 }
 
 func TestOneTunnelForwarderBindFailureRollsBackAllPorts(t *testing.T) {
-	g, err := newOneTunnelForwarder([]OneTunnelListenPort{{Port: 8022}, {Port: 8080, LocalPort: 9000}})
+	g, err := newOneTunnelForwarder([]OneTunnelListenPort{{Port: 8022}, {Port: 8080, LocalPort: 9000}}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestOneTunnelForwarderBindFailureRollsBackAllPorts(t *testing.T) {
 			return first, nil
 		}
 		return nil, errors.New("test bind failure")
-	})
+	}, nil)
 	if err == nil {
 		t.Fatal("bind failure was hidden")
 	}
@@ -184,22 +184,22 @@ func TestOneTunnelForwarderValidationAndDefaultOff(t *testing.T) {
 	for _, ports := range [][]OneTunnelListenPort{
 		{{Port: 0}}, {{Port: -1}}, {{Port: 65536}}, {{Port: 8022, LocalPort: -1}}, {{Port: 8022, LocalPort: 65536}}, {{Port: 8022}, {Port: 8022}}, make([]OneTunnelListenPort, 17),
 	} {
-		if _, err := newOneTunnelForwarder(ports); err == nil {
+		if _, err := newOneTunnelForwarder(ports, false); err == nil {
 			t.Fatal("accepted invalid or duplicate ports")
 		}
 	}
-	g, err := newOneTunnelForwarder([]OneTunnelListenPort{{Port: 8022}})
+	g, err := newOneTunnelForwarder([]OneTunnelListenPort{{Port: 8022}}, false)
 	if err != nil || g.ports[0].LocalPort != 8022 {
 		t.Fatal("same-port default missing")
 	}
-	g, err = newOneTunnelForwarder(nil)
+	g, err = newOneTunnelForwarder(nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	err = g.start(context.Background(), func(string, string) (net.Listener, error) {
 		t.Fatal("default config opened a listener")
 		return nil, nil
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

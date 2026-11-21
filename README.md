@@ -14,7 +14,7 @@ Android 8+ · ARM64 · Alpha
 - WireGuard 配置与扫码导入
 - Tailscale 浏览器登录与设备互联
 - 自定义分流、长按拖拽排序
-- TCP 端口转发、局域网代理
+- TCP/UDP 端口转发、局域网代理
 - 明暗主题、桌面组件与快捷开关
 
 ## 界面

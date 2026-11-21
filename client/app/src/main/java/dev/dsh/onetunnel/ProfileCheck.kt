@@ -35,7 +35,9 @@ object ProfileCheck {
             "第一版尚未接入按进程/包名查询，请暂时移除 PROCESS-* 规则。"
         }
         val proxies = (root["proxies"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
-        proxies.filter { it["type"] in listOf("tailscale", "wireguard") }.forEach { TunnelPortForwards.read(it) }
+        proxies.filter { it["type"] in listOf("tailscale", "wireguard") }.forEach {
+            TunnelPortForwards.read(it); TunnelPortForwards.allEnabled(it)
+        }
         val view = ProfileEditor.view(text)
         require(view.match in view.exits) { "MATCH 指向不存在的出口，请在规则页重新选择。" }
         ProfileEditor.lan(text, view.lan) // Validate explicit LAN settings before saving/starting.

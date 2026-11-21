@@ -4,6 +4,18 @@ package dev.dsh.onetunnel
 data class TunnelPortForward(val port: Int, val localPort: Int = port, val enabled: Boolean = true)
 
 object TunnelPortForwards {
+    fun allEnabled(node: Map<*, *>): Boolean {
+        require("listen-all-ports" !in node || node["listen-all-ports"] is Boolean) { "全部端口开关需为布尔值。" }
+        return node["listen-all-ports"] == true
+    }
+
+    fun setAllEnabled(text: String, name: String, enabled: Boolean): String {
+        val node = ConnectionEditing.node(text, name).toMutableMap()
+        require(node["type"] in listOf("wireguard", "tailscale")) { "此连接不支持端口转发。" }
+        if (enabled) node["listen-all-ports"] = true else node.remove("listen-all-ports")
+        return ConnectionEditing.replace(text, name, node)
+    }
+
     fun parse(port: String, localPort: String, enabled: Boolean = true): TunnelPortForward {
         val result = TunnelPortForward(
             requireNotNull(port.trim().toIntOrNull()) { "请填写入站端口。" },
@@ -34,11 +46,13 @@ object TunnelPortForwards {
         return update(text, name, port, original.copy(enabled = enabled))
     }
 
-    /** Only enabled mappings reach the core, which has no per-port enabled field. */
+    /** In all-port mode, disabled mappings are exclusions from the fallback. */
     fun runtime(node: Map<*, *>): Map<*, *> {
-        if (node["type"] !in listOf("wireguard", "tailscale") || "listen-ports" !in node) return node
+        if (node["type"] !in listOf("wireguard", "tailscale")) return node
+        val all = allEnabled(node)
+        if ("listen-ports" !in node) return node
         val result = node.entries.associateTo(linkedMapOf<String, Any?>()) { it.key.toString() to it.value }
-        write(result, read(node).filter { it.enabled })
+        write(result, read(node).filter { all || it.enabled })
         return result
     }
 

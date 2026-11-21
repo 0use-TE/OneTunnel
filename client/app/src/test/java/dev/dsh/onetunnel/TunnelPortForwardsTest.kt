@@ -13,6 +13,86 @@ class TunnelPortForwardsTest {
     private val forwards = listOf(TunnelPortForward(8022), TunnelPortForward(2222, 8022))
     private fun withForwards() = ConnectionEditing.tailscale(profile, "TAIL", "TAIL", "device", "", true, forwards)
 
+    @Test fun allPortModeDefaultsOffAndRoundTripsWithoutChangingExistingConfiguration() {
+        assertFalse(TunnelPortForwards.allEnabled(ConnectionEditing.node(profile, "TAIL")))
+        val before = withForwards()
+        val enabled = TunnelPortForwards.setAllEnabled(before, "TAIL", true)
+        assertTrue(TunnelPortForwards.allEnabled(ConnectionEditing.node(enabled, "TAIL")))
+        assertTrue(TunnelPortForwards.allEnabled(ConnectionEditing.node(ConnectionPolicy.runtime(enabled), "TAIL")))
+        assertEquals(ProfileEditor.root(before), ProfileEditor.root(TunnelPortForwards.setAllEnabled(enabled, "TAIL", false)))
+        assertEquals(ProfileEditor.view(before).rules, ProfileEditor.view(enabled).rules)
+        assertEquals(forwards, TunnelPortForwards.read(ConnectionEditing.node(enabled, "TAIL")))
+    }
+
+    @Test fun disabledMappingsStayExcludedInAllPortModeAndReturnToOldRuntimeWhenDisabled() {
+        val disabled = TunnelPortForwards.setEnabled(withForwards(), "TAIL", 8022, false)
+        val all = TunnelPortForwards.setAllEnabled(disabled, "TAIL", true)
+        assertEquals(TunnelPortForwards.read(ConnectionEditing.node(all, "TAIL")),
+            TunnelPortForwards.read(ConnectionEditing.node(ConnectionPolicy.runtime(all), "TAIL")))
+        val restored = TunnelPortForwards.setAllEnabled(all, "TAIL", false)
+        assertEquals(listOf(TunnelPortForward(2222, 8022)),
+            TunnelPortForwards.read(ConnectionEditing.node(ConnectionPolicy.runtime(restored), "TAIL")))
+        assertFalse(ConnectionPolicy.runtime(ConnectionPolicy.setEnabled(all, "TAIL", false)).contains("listen-all-ports"))
+    }
+
+    @Test fun allPortModeSurvivesRenameSubscriptionRefreshAndNewPortEdits() {
+        var all = TunnelPortForwards.setAllEnabled(withForwards(), "TAIL", true)
+        all = ConnectionEditing.tailscale(all, "TAIL", "NEW", "new-device", "", true)
+        all = TunnelPortForwards.update(all, "NEW", null, TunnelPortForward(80, 8080))
+        val imported = ClashImport.prepare("""
+            proxies: [{name: remote, type: socks5, server: example.invalid, port: 1080}]
+            rules: ["MATCH,remote"]
+        """.trimIndent())
+        val refreshed = ClashImport.apply(all, imported, keepRules = true)
+        assertEquals(ConnectionEditing.node(all, "NEW"), ConnectionEditing.node(refreshed, "NEW"))
+        assertTrue(TunnelPortForwards.allEnabled(ConnectionEditing.node(refreshed, "NEW")))
+        assertEquals("unchanged-identity", ConnectionEditing.node(refreshed, "NEW")["state-dir"])
+    }
+
+    @Test fun allPortModeRejectsMalformedFlagsBeforeSavingOrStarting() {
+        for (value in listOf<Any?>("true", "false", 1, 0, null)) {
+            val node = ConnectionEditing.node(profile, "TAIL").toMutableMap()
+            node["listen-all-ports"] = value
+            val invalid = ConnectionEditing.replace(profile, "TAIL", node)
+            assertThrows(IllegalArgumentException::class.java) { ProfileCheck.check(invalid) }
+            assertThrows(IllegalArgumentException::class.java) { ConnectionPolicy.runtime(invalid) }
+        }
+    }
+
+    @Test fun remoteSubscriptionCannotEnableAllDevicePorts() {
+        val incoming = """
+            proxies: [{name: remote-tail, type: tailscale, hostname: remote, listen-all-ports: true}]
+            rules: ["MATCH,remote-tail"]
+        """.trimIndent()
+        val preview = ClashImport.prepare(incoming, SubscriptionSource("test", "https://example.invalid/sub", 0))
+        assertFalse(TunnelPortForwards.allEnabled(ConnectionEditing.node(preview.yaml, "remote-tail")))
+        val local = TunnelPortForwards.setAllEnabled(withForwards(), "TAIL", true)
+        val refreshed = ClashImport.apply(local, preview, keepRules = true)
+        assertTrue(TunnelPortForwards.allEnabled(ConnectionEditing.node(refreshed, "TAIL")))
+        assertFalse(TunnelPortForwards.allEnabled(ConnectionEditing.node(refreshed, "remote-tail")))
+    }
+
+    @Test fun wireGuardHasIndependentAllPortFlagThatSurvivesEditingAndConnectionToggle() {
+        val conf = """
+            [Interface]
+            PrivateKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+            Address = 10.77.0.2/32
+            [Peer]
+            PublicKey = AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=
+            Endpoint = vpn.example.invalid:51820
+            AllowedIPs = 10.77.0.0/24
+        """.trimIndent()
+        val wg = ProfileEditor.importWireGuard(profile, WireGuardImport.parse(conf), "WG", ProfileEditor.WG_OUTBOUND_ONLY)
+        val all = TunnelPortForwards.setAllEnabled(wg, "WG", true)
+        assertFalse(TunnelPortForwards.allEnabled(ConnectionEditing.node(all, "TAIL")))
+        val renamed = ConnectionEditing.wireGuard(all, "WG", "HOME", conf, ProfileEditor.WG_OUTBOUND_ONLY)
+        val off = ConnectionPolicy.setEnabled(renamed, "HOME", false)
+        assertFalse(ConnectionPolicy.runtime(off).contains("listen-all-ports"))
+        val on = ConnectionPolicy.setEnabled(off, "HOME", true)
+        assertTrue(TunnelPortForwards.allEnabled(ConnectionEditing.node(ConnectionPolicy.runtime(on), "HOME")))
+        ProfileCheck.check(on)
+    }
+
     @Test fun portSwitchPreservesConfigButRemovesOnlyItsListenerFromRuntime() {
         val initial = withForwards()
         assertTrue(TunnelPortForwards.read(ConnectionEditing.node(initial, "TAIL")).all { it.enabled })

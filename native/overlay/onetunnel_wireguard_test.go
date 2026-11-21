@@ -25,8 +25,12 @@ import (
 // Exercise real encrypted WireGuard packets over loopback UDP, through the
 // actual adapter's virtual TCP listeners to a host service. No root or tailnet.
 func TestOneTunnelWireGuardEncryptedInbound(t *testing.T) {
-	for _, mode := range []string{ipStackAuto, ipStackGVisor} {
-		t.Run(mode, func(t *testing.T) {
+	for _, setting := range []struct {
+		mode string
+		all  bool
+	}{{ipStackAuto, false}, {ipStackGVisor, false}, {ipStackAuto, true}, {ipStackGVisor, true}} {
+		mode := setting.mode
+		t.Run(fmt.Sprintf("%s/all=%t", mode, setting.all), func(t *testing.T) {
 			backend := testOneTunnelListener(t)
 			backendDone := make(chan error, 3)
 			go func() {
@@ -96,7 +100,8 @@ func TestOneTunnelWireGuardEncryptedInbound(t *testing.T) {
 				IPStack: IPStackOption{Mode: mode},
 				Peers: []WireGuardPeerOption{{Server: "127.0.0.1", Port: udpPort,
 					PublicKey: base64.StdEncoding.EncodeToString(serverPublic), AllowedIPs: []string{"10.77.0.1/32", "fd00:77::1/128"}}},
-				ListenPorts: []OneTunnelListenPort{{Port: 8022, LocalPort: backend.Addr().(*net.TCPAddr).Port}},
+				ListenPorts:    []OneTunnelListenPort{{Port: 8022, LocalPort: backend.Addr().(*net.TCPAddr).Port}},
+				ListenAllPorts: setting.all,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -175,9 +180,14 @@ func TestOneTunnelWireGuardEncryptedInbound(t *testing.T) {
 			if err := <-outDone; err != nil {
 				t.Fatal(err)
 			}
-			if c, err := dial("10.77.0.2", 8023); err == nil {
-				_ = c.Close()
-				t.Fatal("unconfigured port is open")
+			if setting.all {
+				testOneTunnelWireGuardRandomPorts(t, ctx, serverStack, wg)
+			}
+			if !setting.all {
+				if c, err := dial("10.77.0.2", 8023); err == nil {
+					_ = c.Close()
+					t.Fatal("unconfigured port is open")
+				}
 			}
 			active, err := dial("10.77.0.2", 8022)
 			if err != nil {
@@ -199,5 +209,81 @@ func TestOneTunnelWireGuardEncryptedInbound(t *testing.T) {
 				t.Fatal("inbound survived WireGuard shutdown")
 			}
 		})
+	}
+}
+
+func testOneTunnelWireGuardRandomPorts(t *testing.T, ctx context.Context, peer ipStack, wg *WireGuard) {
+	t.Helper()
+	for rotation := 0; rotation < 2; rotation++ {
+		tcpBackend := testOneTunnelListener(t)
+		go func() {
+			for i := 0; i < 2; i++ {
+				conn, err := tcpBackend.Accept()
+				if err != nil {
+					return
+				}
+				go func() { defer conn.Close(); _, _ = io.Copy(conn, conn) }()
+			}
+		}()
+		udpBackend := testOneTunnelUDPBackend(t)
+		for _, ip := range []string{"10.77.0.2", "fd00:77::2"} {
+			tcp, err := peer.DialTCP(ctx, "tcp", netip.AddrPort{}, netip.AddrPortFrom(netip.MustParseAddr(ip), uint16(tcpBackend.Addr().(*net.TCPAddr).Port)))
+			if err != nil {
+				t.Fatal("new random TCP port failed", err)
+			}
+			_ = tcp.SetDeadline(time.Now().Add(10 * time.Second))
+			body := []byte("adb-random-tcp")
+			if _, err = tcp.Write(body); err != nil {
+				t.Fatal(err)
+			}
+			reply := make([]byte, len(body))
+			if _, err = io.ReadFull(tcp, reply); err != nil || !bytes.Equal(reply, body) {
+				t.Fatal("random TCP echo failed", err)
+			}
+			_ = tcp.Close()
+			for client := 0; client < 2; client++ {
+				udp, err := peer.DialUDP(ctx, "udp", netip.AddrPort{}, netip.AddrPortFrom(netip.MustParseAddr(ip), uint16(udpBackend.LocalAddr().(*net.UDPAddr).Port)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = udp.SetDeadline(time.Now().Add(10 * time.Second))
+				for _, body := range [][]byte{{}, {byte(client), 0, 255}, bytes.Repeat([]byte{byte(client)}, 4096)} {
+					if _, err = udp.Write(body); err != nil {
+						t.Fatal(err)
+					}
+					packet := make([]byte, 65535)
+					n, err := udp.Read(packet)
+					if err != nil || !bytes.Equal(packet[:n], append([]byte("reply:"), body...)) {
+						t.Fatalf("encrypted UDP datagram/reply failed: n=%d, error=%v", n, err)
+					}
+				}
+				_ = udp.Close()
+			}
+		}
+	}
+	// Existing outbound UDP endpoints must still receive their replies.
+	listener, err := peer.ListenUDP(ctx, "udp", netip.MustParseAddrPort("10.77.0.1:9091"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		p := make([]byte, 64)
+		n, addr, err := listener.ReadFrom(p)
+		if err == nil {
+			_, _ = listener.WriteTo(p[:n], addr)
+		}
+	}()
+	outbound, err := wg.tunDevice.DialUDP(ctx, "udp", netip.AddrPort{}, netip.MustParseAddrPort("10.77.0.1:9091"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer outbound.Close()
+	_ = outbound.SetDeadline(time.Now().Add(10 * time.Second))
+	_, _ = outbound.Write([]byte("outbound-udp"))
+	packet := make([]byte, 64)
+	n, err := outbound.Read(packet)
+	if err != nil || string(packet[:n]) != "outbound-udp" {
+		t.Fatal("outbound UDP regressed", err)
 	}
 }

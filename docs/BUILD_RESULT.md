@@ -1,5 +1,15 @@
 # 构建与静态验证记录
 
+## 0.3.21-alpha：WG / Tailscale 全部 TCP、UDP 端口转发（2026-11-21）
+
+- 转发页为每个 WG / Tailscale 连接新增默认关闭的“全部端口转发”开关，点击立即保存并在运行中应用。启用后将该连接虚拟 IP 的 TCP / UDP 入站转至本机 127.0.0.1 的相同端口，无需为无线 ADB 变化的配对 / 调试端口反复配置。保留原有显式映射；自定义目标优先，关闭的条目作为排除端口；关闭全部端口后恢复原有逐项 TCP 转发。
+- Go 网络组件增加 Tailscale TCP / UDP fallback，以及 WireGuard mipstack / gVisor 两条路径；只接收节点自身地址，不转发其他目的网段。UDP 按来源与目的分开维护、保留报文边界和空报文，空闲一分钟回收，TCP / UDP 合计最多 64 条活动转发。停止、重载与失败回滚清理监听、回调及活动连接；仅认证不启用转发。远程订阅不能开启全部端口，刷新订阅保留本地开关选择。
+- 96 项 JVM 测试全部通过；原生 13 项顶层测试（含 WireGuard 的两种协议栈 × 两种模式四个子用例）及 go vet 通过。宿主验证包含加密 WG IPv4 / IPv6 入站、动态 TCP / UDP 端口、双 UDP 来源、空与二进制报文、出站共存、UDP 回收、禁用端口及清理；Tailscale 使用 SDK 接口替身连接真实本机 TCP / UDP 服务，没有执行真实 tailnet 认证或跨设备 ADB。
+- ARM64 网络组件、assembleDebug、testDebugUnitTest 与 lintDebug 完成。Lint 为 0 错误 / 9 个现有配置或依赖警告；APK 签名验证通过，包名与原开发证书不变，可覆盖安装保留数据。APK 内原生库与本次构建逐字节一致，ELF LOAD 段为 16 KiB 对齐。四个原生补丁的新目录应用与重复准备已核对一致。
+- 本次未安装、打开应用或操作用户 VPN；明暗界面交互、真实 tailnet / WG 对端与无线 ADB 的设备验收由用户完成。没有修改安卓系统内核。
+- APK：`artifacts/OneTunnel-0.3.21-alpha-arm64.apk`，versionCode 25，29,047,483 字节，SHA-256：`5a38d645beb215ca1268558f373718fb9c49c9d4cf73c1f81913faf759772bb2`。
+- APK 内 ARM64 原生库 SHA-256：`f3801fd1902bbcdb8ec8b172dd6fa5c6cb6ba09e22a8652b246e6c44e8c1d3f2`。
+
 ## 0.3.20-alpha：移除自动恢复，保留小组件和快捷开关（2026-11-19）
 
 - 用户反馈 0.3.19 更新后打开应用闪烁且无法工作，按要求移除 RecoveryPolicy / RecoveryStore、自动重建 / 重试预算 / 延迟、系统常驻状态同步及设置入口。服务恢复为用户显式启动且所有分支 START_NOT_STICKY，清单禁用系统 always-on；旧版恢复状态文件不再读取，不迁移或清除连接数据。

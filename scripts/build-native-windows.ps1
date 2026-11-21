@@ -10,16 +10,23 @@ $clang = (Resolve-Path -LiteralPath (Join-Path $toolchain 'bin/clang.exe')).Path
 $sysroot = (Resolve-Path -LiteralPath (Join-Path $toolchain 'sysroot')).Path.Replace('\','/')
 $upstream = Join-Path $projectRoot 'upstream/mihomo'
 if (-not (Test-Path -LiteralPath (Join-Path $upstream 'adapter/outbound/tailscale.go'))) { throw 'Fetch the pinned Mihomo source first.' }
+# Restore the earlier patch shape before idempotently checking the base overlays.
+$allPortPatch = Join-Path $projectRoot 'native/overlay/all-port-inbound.patch'
+& git -C $upstream apply --unidiff-zero --reverse --check $allPortPatch 2>$null
+if ($LASTEXITCODE -eq 0) {
+    & git -C $upstream apply --unidiff-zero --reverse $allPortPatch
+    if ($LASTEXITCODE -ne 0) { throw 'Could not prepare the all-port overlay.' }
+}
 Copy-Item -LiteralPath (Join-Path $projectRoot 'native/overlay/onetunnel_tailscale.go') -Destination (Join-Path $upstream 'adapter/outbound/onetunnel_tailscale.go')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'native/overlay/onetunnel_tailscale_test.go') -Destination (Join-Path $upstream 'adapter/outbound/onetunnel_tailscale_test.go')
 foreach ($obsolete in @('onetunnel_tailscale_forward.go', 'onetunnel_tailscale_forward_test.go')) {
     $obsoletePath = Join-Path $upstream ('adapter/outbound/' + $obsolete)
     if (Test-Path -LiteralPath $obsoletePath) { Remove-Item -LiteralPath $obsoletePath }
 }
-foreach ($overlay in @('onetunnel_forward.go', 'onetunnel_forward_test.go', 'onetunnel_wireguard.go', 'onetunnel_wireguard_test.go', 'onetunnel_inbound_parser_test.go')) {
+foreach ($overlay in @('onetunnel_forward.go', 'onetunnel_forward_test.go', 'onetunnel_forward_all.go', 'onetunnel_forward_all_test.go', 'onetunnel_packet.go', 'onetunnel_wireguard.go', 'onetunnel_wireguard_test.go', 'onetunnel_tailscale_all_test.go', 'onetunnel_inbound_parser_test.go')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot ('native/overlay/' + $overlay)) -Destination (Join-Path $upstream ('adapter/outbound/' + $overlay))
 }
-foreach ($patchName in @('android-vpnservice.patch', 'tailscale-inbound.patch', 'wireguard-inbound.patch')) {
+foreach ($patchName in @('android-vpnservice.patch', 'tailscale-inbound.patch', 'wireguard-inbound.patch', 'all-port-inbound.patch')) {
 $patch = Join-Path $projectRoot ('native/overlay/' + $patchName)
 & git -C $upstream apply --unidiff-zero --reverse --check $patch 2>$null
 if ($LASTEXITCODE -ne 0) {

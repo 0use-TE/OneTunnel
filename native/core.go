@@ -133,6 +133,7 @@ func GoPrepareTailscale(homeText, configText, nodeText *C.char) (result *C.char)
 	// Interactive login is not a forwarding session. Keep configured host
 	// services closed until the user starts the unified VPN connection.
 	delete(node, "listen-ports")
+	delete(node, "listen-all-ports")
 	// Auth-only session: no TUN, no listeners, no providers, and no VPN socket
 	// protection. Control traffic follows the user's existing network/VPN.
 	dialer.DefaultSocketHook = nil
