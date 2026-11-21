@@ -29,7 +29,7 @@ import kotlinx.coroutines.delay
     val nodes = runtime?.nodes ?: remember(profile, groupName) { runCatching { ClashProfiles.nodes(profile, groupName) }.getOrDefault(emptyList()) }
     val visible = nodes.filter { it.name.contains(search, ignoreCase = true) }
     val available = enabled && !controller.selecting && (!live || runtime != null)
-    val testable = available && live && controller.connected
+    val testable = available && live && controller.connected && !controller.cancellingTests
     val list = rememberLazyGridState()
     LaunchedEffect(configured.map { it.name }) { if (configured.none { it.name == groupName }) groupName = configured.firstOrNull()?.name.orEmpty() }
     DisposableEffect(Unit) { onDispose { controller.unbind() } }
@@ -79,7 +79,9 @@ import kotlinx.coroutines.delay
                     TextButton(onClick = {
                         if (controller.testingBatch) controller.cancelTests()
                         else controller.test(groupName, nodes.map { it.name })
-                    }, enabled = testable) { Text(if (controller.testingBatch) "停止测速" else "测试本组") }
+                    }, enabled = if (controller.testingBatch) live && controller.connected else testable) {
+                        Text(if (controller.testingBatch) "停止测速" else "测试本组")
+                    }
                 }
                 OutlinedTextField(search, { search = it }, label = { Text("搜索节点 · ${nodes.size}") },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -99,6 +101,7 @@ import kotlinx.coroutines.delay
                 live && node.name in controller.testing -> "测速中"
                 measured?.status == "ok" -> "${measured.millis} ms"
                 measured?.status == "timeout" -> "超时"
+                measured?.status == "cancelled" -> "已停止"
                 measured != null -> "失败"
                 live && node.delay != null && node.delay > 0 -> "${node.delay} ms"
                 live && node.delay == 0 -> "失败"

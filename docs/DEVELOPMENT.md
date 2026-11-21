@@ -12,6 +12,7 @@ OneTunnel 使用 Android Compose 编写界面，通过一个 Android VPN 服务�
 
 - VPN 在独立的 `:vpn` 进程运行，使用 Android VpnService/TUN、IPv4/IPv6 路由、DNS 劫持和 socket protect JNI 回调。服务为 START_NOT_STICKY；不处理异常自动恢复、开机连接或系统 always-on。正常退出界面不主动停止前台服务。
 - Clash 代理组选择、测速、Tailscale 状态 / 认证和配置重载经同 UID Messenger/JNI 操作，不开放外部 HTTP 控制接口。节点选择直接修改运行中的代理组；其他配置重载保留 Android TUN，但关闭旧网络连接。热重载失败时停止 VPN，保留已保存配置。
+- Clash 手动测速最多四并发，每节点网络请求上限五秒、界面响应兜底七秒；停止立即清除活动和排队状态，已完成结果保留。每次测试使用独立批次，取消后旧回复不应用；等取消确认和旧请求退出后再允许新测速，避免旧任务占满并发位置。自动选择组仍由本地 Mihomo 按订阅组策略运行，不由订阅服务器分配节点。
 - 订阅入口接收 Clash/Mihomo YAML，不转换 Base64 节点列表或 `vless://` 等单节点分享链接。内核可解析 VLESS、VMess、SS/SSR、Trojan、Hysteria/Hysteria2、TUIC、SOCKS5/HTTP 等出站 YAML。桌面脚本不执行，PROCESS 规则在导入预览提示后移除；订阅不能自行打开局域网共享或控制端口。
 - WireGuard 导入支持标准客户端 `.conf`、IPv4/IPv6、多个 Peer、预共享密钥和 AllowedIPs；多个 Peer 的 Keepalive 需一致。脚本、按 App 选项、多个同族本地地址及不兼容扩展会拒绝。DNS 用于 WG 出站解析；搜索域及 ListenPort/Table/SaveConfig 的差异在导入预览说明。
 - Tailscale 使用内嵌 tsnet 身份，可浏览器登录，也可在高级配置填写 auth-key；不复用官方 App 身份。WG / TS 各有默认关闭的“全部端口转发”开关，开启后将发给该连接自身地址的 TCP / UDP 流量转到 `127.0.0.1` 的同名端口；原有最多 16 条手动映射优先，关闭映射中的端口排除在全部转发之外。关闭全部转发后恢复原来的显式 TCP 映射。不是完整 IP 入站、子网路由器或内置 Tailscale SSH。
